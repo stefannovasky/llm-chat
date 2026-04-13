@@ -160,6 +160,12 @@ llm-chat/
 
 ---
 
+## Workflow
+
+Commit after each completed task using conventional commits. Mark the task checkbox with `[x]` in this file before committing.
+
+---
+
 ## Technical decisions
 
 - **State:** Bubble Tea model is the single source of truth. All mutations go through `Update`.
