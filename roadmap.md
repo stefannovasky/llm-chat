@@ -46,13 +46,13 @@ llm-chat/
 
 **Goal:** project compiles with final folder structure and working config.
 
-- [ ] Initialize Go module and add dependencies with exact versions
-- [ ] Create folder structure
-- [ ] Create `config.toml.example` with `api_key` and `model` fields
-- [ ] Implement config reading from `~/.config/llm-chat/config.toml`
-- [ ] On first run, create template config and display guidance message
-- [ ] Validate config: error and exit if `api_key` is missing; hardcoded default if `model` is missing
-- [ ] Entrypoint at `cmd/llm-chat/main.go`
+- [ ] 1.1 Initialize Go module and add dependencies with exact versions
+- [ ] 1.2 Create folder structure
+- [ ] 1.3 Create `config.toml.example` with `api_key` and `model` fields
+- [ ] 1.4 Implement config reading from `~/.config/llm-chat/config.toml`
+- [ ] 1.5 On first run, create template config and display guidance message
+- [ ] 1.6 Validate config: error and exit if `api_key` is missing; hardcoded default if `model` is missing
+- [ ] 1.7 Entrypoint at `cmd/llm-chat/main.go`
 
 **Result:** `go run ./cmd/llm-chat` loads config and prints a message. No UI yet.
 
@@ -62,14 +62,14 @@ llm-chat/
 
 **Goal:** functional TUI with layout, multiline input, and scroll.
 
-- [ ] Bubble Tea model with 3 areas: header, history, input
-- [ ] Header: simple line with app name
-- [ ] History: scrollable area taking up all remaining space
-- [ ] Input: fixed at the bottom, dynamic height (up to ~6 lines)
-- [ ] Enter sends message, Shift+Enter inserts new line
-- [ ] History scroll via mouse scroll and PageUp/PageDown
-- [ ] Colored dots to differentiate user and assistant messages
-- [ ] Ctrl+C exits the app
+- [ ] 2.1 Bubble Tea model with 3 areas: header, history, input
+- [ ] 2.2 Header: simple line with app name
+- [ ] 2.3 History: scrollable area taking up all remaining space
+- [ ] 2.4 Input: fixed at the bottom, dynamic height (up to ~6 lines)
+- [ ] 2.5 Enter sends message, Shift+Enter inserts new line
+- [ ] 2.6 History scroll via mouse scroll and PageUp/PageDown
+- [ ] 2.7 Colored dots to differentiate user and assistant messages
+- [ ] 2.8 Ctrl+C exits the app
 
 **Result:** TUI opens, user types messages that appear in history with colored dots. No LLM yet.
 
@@ -79,13 +79,13 @@ llm-chat/
 
 **Goal:** working conversation with the LLM, no streaming yet.
 
-- [ ] Define Message and Conversation types in the domain layer
-- [ ] Implement generic chat system prompt
-- [ ] Native HTTP client for OpenRouter chat completions endpoint (no streaming)
-- [ ] Send full conversation history with each request
-- [ ] Capture usage data (prompt_tokens, completion_tokens) from response
-- [ ] Display API errors inline in red
-- [ ] Connect UI to domain: sending a message triggers the client, response appears in history
+- [ ] 3.1 Define Message and Conversation types in the domain layer
+- [ ] 3.2 Implement generic chat system prompt
+- [ ] 3.3 Native HTTP client for OpenRouter chat completions endpoint (no streaming)
+- [ ] 3.4 Send full conversation history with each request
+- [ ] 3.5 Capture usage data (prompt_tokens, completion_tokens) from response
+- [ ] 3.6 Display API errors inline in red
+- [ ] 3.7 Connect UI to domain: sending a message triggers the client, response appears in history
 
 **Result:** user chats with the LLM. Responses appear complete (no streaming).
 
@@ -95,12 +95,12 @@ llm-chat/
 
 **Goal:** responses appear token by token in real time.
 
-- [ ] SSE parsing in the HTTP client
-- [ ] Incremental UI updates with each received token
-- [ ] Block input while streaming is active
-- [ ] Ctrl+C during streaming cancels the current response (text already received is kept)
-- [ ] Second Ctrl+C exits the app
-- [ ] Visual "typing" indicator while streaming is active
+- [ ] 4.1 SSE parsing in the HTTP client
+- [ ] 4.2 Incremental UI updates with each received token
+- [ ] 4.3 Block input while streaming is active
+- [ ] 4.4 Ctrl+C during streaming cancels the current response (text already received is kept)
+- [ ] 4.5 Second Ctrl+C exits the app
+- [ ] 4.6 Visual "typing" indicator while streaming is active
 
 **Result:** responses flow token by token. Input blocked during generation. Ctrl+C cancels.
 
@@ -110,8 +110,8 @@ llm-chat/
 
 **Goal:** assistant responses are rendered with proper formatting.
 
-- [ ] Integrate Glamour for Markdown rendering in assistant responses
-- [ ] Code blocks, bold, italic, lists rendered correctly in the terminal
+- [ ] 5.1 Integrate Glamour for Markdown rendering in assistant responses
+- [ ] 5.2 Code blocks, bold, italic, lists rendered correctly in the terminal
 
 **Result:** MVP complete. User can chat with an LLM in the terminal with streaming and formatted responses.
 
@@ -121,42 +121,42 @@ llm-chat/
 
 ### Phase 6 — Slash commands
 
-- [ ] Slash command parser: input starting with `/` is interpreted as a command
-- [ ] `/model` — switch active model
-- [ ] `/cost` — display accumulated session cost (uses captured usage data)
-- [ ] `/compact` — manually compact conversation history
-- [ ] Invalid command errors displayed inline
-- [ ] Command output displayed as a system message with distinct color
+- [ ] 6.1 Slash command parser: input starting with `/` is interpreted as a command
+- [ ] 6.2 `/model` — switch active model
+- [ ] 6.3 `/cost` — display accumulated session cost (uses captured usage data)
+- [ ] 6.4 `/compact` — manually compact conversation history
+- [ ] 6.5 Invalid command errors displayed inline
+- [ ] 6.6 Command output displayed as a system message with distinct color
 
 ---
 
 ### Phase 7 — Conversation persistence + resume
 
-- [ ] Save conversations to disk (format TBD)
-- [ ] `/resume` — list and re-enter previous conversations
+- [ ] 7.1 Save conversations to disk (format TBD)
+- [ ] 7.2 `/resume` — list and re-enter previous conversations
 
 ---
 
 ### Phase 8 — Token management
 
-- [ ] Token count display for current conversation
-- [ ] Fetch model context window limits from OpenRouter API
-- [ ] Autocompact — automatically compact history when approaching token limit
+- [ ] 8.1 Token count display for current conversation
+- [ ] 8.2 Fetch model context window limits from OpenRouter API
+- [ ] 8.3 Autocompact — automatically compact history when approaching token limit
 
 ---
 
 ### Phase 9 — Advanced config
 
-- [ ] `temperature` and `max_tokens` configurable via `config.toml`
-- [ ] Configurable HTTP timeout via `config.toml`
-- [ ] Customizable system prompt via `config.toml`
+- [ ] 9.1 `temperature` and `max_tokens` configurable via `config.toml`
+- [ ] 9.2 Configurable HTTP timeout via `config.toml`
+- [ ] 9.3 Customizable system prompt via `config.toml`
 
 ---
 
 ### Phase 10 — UX polish
 
-- [ ] Header displaying active model
-- [ ] Unblocked input during streaming
+- [ ] 10.1 Header displaying active model
+- [ ] 10.2 Unblocked input during streaming
 
 ---
 
