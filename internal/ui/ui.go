@@ -53,6 +53,10 @@ func New(cfg *config.Config) Model {
 	ta.DynamicHeight = true
 	ta.MinHeight = 1
 	ta.MaxHeight = maxInputLines
+	// MaxContentHeight must be set to a value higher than MaxHeight so that
+	// atContentLimit() uses the visual-line check instead of the legacy
+	// logical-line check, which would block InsertNewline at MaxHeight rows.
+	ta.MaxContentHeight = 200
 
 	styles := ta.Styles()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
