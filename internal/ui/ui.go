@@ -71,6 +71,32 @@ func (m Model) Init() tea.Cmd {
 	return m.initCmd
 }
 
+// visualInputLines counts the number of rendered lines the textarea content
+// will occupy given the available width. Each logical line (separated by \n)
+// may wrap into multiple visual lines.
+func (m *Model) visualInputLines() int {
+	taWidth := m.width - 2 // "- 2" for "> " prefix
+	if taWidth <= 0 {
+		return 1
+	}
+	total := 0
+	for _, line := range strings.Split(m.textarea.Value(), "\n") {
+		runes := []rune(line)
+		if len(runes) == 0 {
+			total++ // empty logical line still occupies one row
+		} else {
+			total += (len(runes) + taWidth - 1) / taWidth
+		}
+	}
+	if total < 1 {
+		return 1
+	}
+	if total > maxInputLines {
+		return maxInputLines
+	}
+	return total
+}
+
 func (m *Model) recalcLayout() {
 	if m.width == 0 || m.height == 0 {
 		return
@@ -78,14 +104,8 @@ func (m *Model) recalcLayout() {
 
 	// header (1 line) + top separator (1 line) = 2 fixed at top
 	// bottom separator (1 line) = 1 fixed
-	// input: 1–6 lines, dynamic
-	inputLines := m.textarea.LineCount()
-	if inputLines < 1 {
-		inputLines = 1
-	}
-	if inputLines > maxInputLines {
-		inputLines = maxInputLines
-	}
+	// input: 1–6 visual lines, dynamic
+	inputLines := m.visualInputLines()
 
 	vpHeight := m.height - 2 - 1 - inputLines
 	if vpHeight < 0 {
