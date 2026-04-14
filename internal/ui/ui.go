@@ -54,24 +54,22 @@ func New(cfg *config.Config) Model {
 	ta.DynamicHeight = true
 	ta.MinHeight = 1
 	ta.MaxHeight = maxInputLines
-	// MaxContentHeight must be set to a value higher than MaxHeight so that
-	// atContentLimit() uses the visual-line check instead of the legacy
-	// logical-line check, which would block InsertNewline at MaxHeight rows.
+	// Without this, atContentLimit() uses the legacy logical-line check and
+	// blocks InsertNewline once MaxHeight rows are reached.
 	ta.MaxContentHeight = math.MaxInt
 
 	styles := ta.Styles()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	ta.SetStyles(styles)
 
-	// Remap InsertNewline to alt+enter so plain enter can submit the message.
-	// Terminals that don't support the Kitty keyboard protocol send ESC+CR for
-	// shift+enter, which bubbletea decodes as "alt+enter".
+	// alt+enter = newline; plain enter = submit.
+	// Terminals without Kitty protocol send ESC+CR for shift+enter, which
+	// bubbletea decodes as "alt+enter".
 	km := ta.KeyMap
 	km.InsertNewline = key.NewBinding(key.WithKeys("alt+enter"))
 	ta.KeyMap = km
 
-	// Focus must be set before the model is stored so the textarea
-	// accepts key events from the first Update tick.
+	// Must focus before storing so keystrokes work from the first tick.
 	focusCmd := ta.Focus()
 
 	vp := viewport.New()
@@ -96,8 +94,7 @@ func (m *Model) recalcLayout() {
 	m.textarea.SetWidth(m.width - 2) // "- 2" for "> " prefix
 	inputLines := m.textarea.Height()
 
-	// header (1 line) + top separator (1 line) + bottom separator (1 line)
-	vpHeight := m.height - 3 - inputLines
+	vpHeight := m.height - 3 - inputLines // 3 = header + 2 separators
 	if vpHeight < 0 {
 		vpHeight = 0
 	}
@@ -137,8 +134,6 @@ func (m *Model) refreshViewport() {
 	m.viewport.SetContent(sb.String())
 }
 
-// prefixLines prepends first to the first line of s and rest to every
-// subsequent line.
 func prefixLines(s, first, rest string) string {
 	lines := strings.Split(s, "\n")
 	var sb strings.Builder
