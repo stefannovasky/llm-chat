@@ -40,6 +40,7 @@ type Model struct {
 	viewport viewport.Model
 	textarea textarea.Model
 	messages []message
+	initCmd  tea.Cmd
 }
 
 func New(cfg *config.Config) Model {
@@ -52,17 +53,22 @@ func New(cfg *config.Config) Model {
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	ta.SetStyles(styles)
 
+	// Focus must be set before the model is stored so the textarea
+	// accepts key events from the first Update tick.
+	focusCmd := ta.Focus()
+
 	vp := viewport.New()
 
 	return Model{
 		cfg:      cfg,
 		viewport: vp,
 		textarea: ta,
+		initCmd:  focusCmd,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.textarea.Focus()
+	return m.initCmd
 }
 
 func (m *Model) recalcLayout() {
