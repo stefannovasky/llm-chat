@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -56,7 +57,7 @@ func New(cfg *config.Config) Model {
 	// MaxContentHeight must be set to a value higher than MaxHeight so that
 	// atContentLimit() uses the visual-line check instead of the legacy
 	// logical-line check, which would block InsertNewline at MaxHeight rows.
-	ta.MaxContentHeight = 200
+	ta.MaxContentHeight = math.MaxInt
 
 	styles := ta.Styles()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
