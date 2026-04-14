@@ -5,7 +5,9 @@ Interactive LLM chat application for the terminal, built as a TUI with Bubble Te
 ## Running
 
 ```
-go run ./cmd/llm-chat
+make run          # run via go run
+make build        # compile to bin/llm-chat
+./bin/llm-chat    # run compiled binary
 ```
 
 Config lives at `~/.config/llm-chat/config.toml` (respects `$XDG_CONFIG_HOME`). On first run with no config, the app creates a template and exits with instructions.
