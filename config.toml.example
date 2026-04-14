@@ -1,0 +1,5 @@
+# OpenRouter API key (required)
+api_key = ""
+
+# Model to use (optional, defaults to openai/gpt-4o-mini)
+# default_model = "openai/gpt-4o-mini"
