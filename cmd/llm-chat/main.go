@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stefannovasky/llm-chat/internal/config"
+	"github.com/stefannovasky/llm-chat/internal/ui"
 )
 
 func main() {
@@ -19,5 +21,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("config loaded. model: %s\n", cfg.DefaultModel)
+	p := tea.NewProgram(ui.New(cfg))
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

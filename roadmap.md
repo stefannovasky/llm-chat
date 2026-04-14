@@ -62,14 +62,14 @@ llm-chat/
 
 **Goal:** functional TUI with layout, multiline input, and scroll.
 
-- [ ] 2.1 Bubble Tea model with 3 areas: header, history, input
-- [ ] 2.2 Header: simple line with app name
-- [ ] 2.3 History: scrollable area taking up all remaining space
-- [ ] 2.4 Input: fixed at the bottom, dynamic height (up to ~6 lines)
-- [ ] 2.5 Enter sends message, Shift+Enter inserts new line
-- [ ] 2.6 History scroll via mouse scroll and PageUp/PageDown
-- [ ] 2.7 Colored dots to differentiate user and assistant messages
-- [ ] 2.8 Ctrl+C exits the app
+- [x] 2.1 Bubble Tea model with 3 areas: header, history, input
+- [x] 2.2 Header: simple line with app name
+- [x] 2.3 History: scrollable area taking up all remaining space
+- [x] 2.4 Input: fixed at the bottom, dynamic height (up to ~6 lines)
+- [x] 2.5 Enter sends message, Shift+Enter inserts new line
+- [x] 2.6 History scroll via mouse scroll and PageUp/PageDown
+- [x] 2.7 Colored dots to differentiate user and assistant messages
+- [x] 2.8 Ctrl+C exits the app
 
 **Result:** TUI opens, user types messages that appear in history with colored dots. No LLM yet.
 
