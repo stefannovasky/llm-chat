@@ -48,6 +48,9 @@ func New(cfg *config.Config) Model {
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.Placeholder = ""
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = maxInputLines
 
 	styles := ta.Styles()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
@@ -71,51 +74,26 @@ func (m Model) Init() tea.Cmd {
 	return m.initCmd
 }
 
-// visualInputLines counts the number of rendered lines the textarea content
-// will occupy given the available width. Each logical line (separated by \n)
-// may wrap into multiple visual lines.
-func (m *Model) visualInputLines() int {
-	taWidth := m.width - 2 // "- 2" for "> " prefix
-	if taWidth <= 0 {
-		return 1
-	}
-	total := 0
-	for _, line := range strings.Split(m.textarea.Value(), "\n") {
-		runes := []rune(line)
-		if len(runes) == 0 {
-			total++ // empty logical line still occupies one row
-		} else {
-			total += (len(runes) + taWidth - 1) / taWidth
-		}
-	}
-	if total < 1 {
-		return 1
-	}
-	if total > maxInputLines {
-		return maxInputLines
-	}
-	return total
-}
-
 func (m *Model) recalcLayout() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
 
-	// header (1 line) + top separator (1 line) = 2 fixed at top
-	// bottom separator (1 line) = 1 fixed
-	// input: 1–6 visual lines, dynamic
-	inputLines := m.visualInputLines()
+	// SetWidth triggers the textarea's internal recalculateHeight(),
+	// which uses totalVisualLines() to auto-adjust height when DynamicHeight=true.
+	m.textarea.SetWidth(m.width - 2) // "- 2" for "> " prefix
 
-	vpHeight := m.height - 2 - 1 - inputLines
+	// Read the height the textarea settled on (clamped to MinHeight..MaxHeight).
+	inputLines := m.textarea.Height()
+
+	// header (1 line) + top separator (1 line) + bottom separator (1 line)
+	vpHeight := m.height - 3 - inputLines
 	if vpHeight < 0 {
 		vpHeight = 0
 	}
 
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(vpHeight)
-	m.textarea.SetWidth(m.width - 2) // "- 2" for "> " prefix
-	m.textarea.SetHeight(inputLines)
 }
 
 func (m *Model) refreshViewport() {
