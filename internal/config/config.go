@@ -19,12 +19,8 @@ type Config struct {
 	DefaultModel string `toml:"default_model"`
 }
 
-func configPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".config")
-	}
+func ConfigPath() string {
+	base, _ := os.UserConfigDir()
 	return filepath.Join(base, "llm-chat", "config.toml")
 }
 
@@ -35,28 +31,32 @@ api_key = ""
 # default_model = "openai/gpt-4o-mini"
 `
 
-// Load reads the config file, creates a template on first run, and validates required fields.
 func Load() (*Config, error) {
-	path := configPath()
+	path := ConfigPath()
 
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+	var cfg Config
+	_, err := toml.DecodeFile(path, &cfg)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create config directory: %w", err)
 		}
-		if err := os.WriteFile(path, []byte(templateConfig), 0644); err != nil {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
 			return nil, fmt.Errorf("failed to create config file: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "Config file created at %s\nAdd your OpenRouter API key to get started.\n", path)
+		_, werr := f.WriteString(templateConfig)
+		f.Close()
+		if werr != nil {
+			return nil, fmt.Errorf("failed to write config file: %w", werr)
+		}
 		return nil, ErrFirstRun
 	}
 
-	var cfg Config
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
-	}
-
 	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("error: api_key is required. Set it in %s", path)
+		return nil, fmt.Errorf("api_key is required. Set it in %s", path)
 	}
 
 	if cfg.DefaultModel == "" {

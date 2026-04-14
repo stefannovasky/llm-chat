@@ -11,7 +11,9 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		if !errors.Is(err, config.ErrFirstRun) {
+		if errors.Is(err, config.ErrFirstRun) {
+			fmt.Fprintf(os.Stderr, "Config file created at %s\nAdd your OpenRouter API key to get started.\n", config.ConfigPath())
+		} else {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		os.Exit(1)
