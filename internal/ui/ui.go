@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -16,8 +17,8 @@ const (
 )
 
 var (
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	userDotStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	dimStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	userDotStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 	assistDotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 )
 
@@ -34,13 +35,14 @@ type message struct {
 }
 
 type Model struct {
-	cfg      *config.Config
-	width    int
-	height   int
-	viewport viewport.Model
-	textarea textarea.Model
-	messages []message
-	initCmd  tea.Cmd
+	cfg       *config.Config
+	width     int
+	height    int
+	separator string
+	viewport  viewport.Model
+	textarea  textarea.Model
+	messages  []message
+	initCmd   tea.Cmd
 }
 
 func New(cfg *config.Config) Model {
@@ -55,6 +57,13 @@ func New(cfg *config.Config) Model {
 	styles := ta.Styles()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	ta.SetStyles(styles)
+
+	// Remap InsertNewline to alt+enter so plain enter can submit the message.
+	// Terminals that don't support the Kitty keyboard protocol send ESC+CR for
+	// shift+enter, which bubbletea decodes as "alt+enter".
+	km := ta.KeyMap
+	km.InsertNewline = key.NewBinding(key.WithKeys("alt+enter"))
+	ta.KeyMap = km
 
 	// Focus must be set before the model is stored so the textarea
 	// accepts key events from the first Update tick.
@@ -79,11 +88,7 @@ func (m *Model) recalcLayout() {
 		return
 	}
 
-	// SetWidth triggers the textarea's internal recalculateHeight(),
-	// which uses totalVisualLines() to auto-adjust height when DynamicHeight=true.
 	m.textarea.SetWidth(m.width - 2) // "- 2" for "> " prefix
-
-	// Read the height the textarea settled on (clamped to MinHeight..MaxHeight).
 	inputLines := m.textarea.Height()
 
 	// header (1 line) + top separator (1 line) + bottom separator (1 line)
@@ -120,52 +125,28 @@ func (m *Model) refreshViewport() {
 			d = assistDotStyle.Render(dot)
 		}
 
-		wrapped := wordWrap(msg.content, contentWidth)
-		lines := strings.Split(wrapped, "\n")
-		sb.WriteString(d + " " + lines[0])
-		for _, line := range lines[1:] {
-			sb.WriteString("\n  " + line)
-		}
+		wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
+		sb.WriteString(prefixLines(wrapped, d+" ", "  "))
 	}
 
 	m.viewport.SetContent(sb.String())
 }
 
-func wordWrap(text string, width int) string {
-	if width <= 0 {
-		return text
-	}
-	var result []string
-	for _, para := range strings.Split(text, "\n") {
-		result = append(result, wrapLine(para, width))
-	}
-	return strings.Join(result, "\n")
-}
-
-func wrapLine(line string, width int) string {
-	if len(line) <= width {
-		return line
-	}
-	words := strings.Fields(line)
-	if len(words) == 0 {
-		return ""
-	}
-	var lines []string
-	current := ""
-	for _, word := range words {
-		if current == "" {
-			current = word
-		} else if len(current)+1+len(word) <= width {
-			current += " " + word
+// prefixLines prepends first to the first line of s and rest to every
+// subsequent line.
+func prefixLines(s, first, rest string) string {
+	lines := strings.Split(s, "\n")
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteByte('\n')
+			sb.WriteString(rest)
 		} else {
-			lines = append(lines, current)
-			current = word
+			sb.WriteString(first)
 		}
+		sb.WriteString(line)
 	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -173,18 +154,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.separator = dimStyle.Render(strings.Repeat("─", m.width))
 		m.recalcLayout()
 		m.refreshViewport()
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// shift+enter: insert newline
-		if msg.Code == tea.KeyEnter && msg.Mod&tea.ModShift != 0 {
-			m.textarea.InsertRune('\n')
-			m.recalcLayout()
-			return m, nil
-		}
-
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -209,9 +184,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		prevHeight := m.textarea.Height()
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
-		m.recalcLayout()
+		if m.textarea.Height() != prevHeight {
+			m.recalcLayout()
+		}
 		return m, cmd
 
 	case tea.MouseWheelMsg:
@@ -234,25 +212,14 @@ func (m Model) View() tea.View {
 		return v
 	}
 
-	separator := dimStyle.Render(strings.Repeat("─", m.width))
 	header := dimStyle.Render("llm-chat")
-
-	taLines := strings.Split(m.textarea.View(), "\n")
-	var inputParts []string
-	for i, line := range taLines {
-		if i == 0 {
-			inputParts = append(inputParts, dimStyle.Render(">")+" "+line)
-		} else {
-			inputParts = append(inputParts, "  "+line)
-		}
-	}
-	input := strings.Join(inputParts, "\n")
+	input := prefixLines(m.textarea.View(), dimStyle.Render(">")+" ", "  ")
 
 	v.SetContent(strings.Join([]string{
 		header,
-		separator,
+		m.separator,
 		m.viewport.View(),
-		separator,
+		m.separator,
 		input,
 	}, "\n"))
 
