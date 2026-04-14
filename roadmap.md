@@ -35,7 +35,7 @@ llm-chat/
 - Bubble Tea v2.0.5
 - Bubbles v2.1.0
 - Lip Gloss v2.0.3
-- Glamour (version TBD)
+- Glamour v2.0.0
 - TOML library (TBD)
 
 ---
@@ -46,13 +46,13 @@ llm-chat/
 
 **Goal:** project compiles with final folder structure and working config.
 
-- [ ] 1.1 Initialize Go module and add dependencies with exact versions
-- [ ] 1.2 Create folder structure
-- [ ] 1.3 Create `config.toml.example` with `api_key` and `model` fields
-- [ ] 1.4 Implement config reading from `~/.config/llm-chat/config.toml`
-- [ ] 1.5 On first run, create template config and display guidance message
-- [ ] 1.6 Validate config: error and exit if `api_key` is missing; hardcoded default if `model` is missing
-- [ ] 1.7 Entrypoint at `cmd/llm-chat/main.go`
+- [x] 1.1 Initialize Go module and add dependencies with exact versions
+- [x] 1.2 Create folder structure
+- [x] 1.3 Create `config.toml.example` with `api_key` and `model` fields
+- [x] 1.4 Implement config reading from `~/.config/llm-chat/config.toml`
+- [x] 1.5 On first run, create template config and display guidance message
+- [x] 1.6 Validate config: error and exit if `api_key` is missing; hardcoded default if `model` is missing
+- [x] 1.7 Entrypoint at `cmd/llm-chat/main.go`
 
 **Result:** `go run ./cmd/llm-chat` loads config and prints a message. No UI yet.
 
