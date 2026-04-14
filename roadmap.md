@@ -79,8 +79,8 @@ llm-chat/
 
 **Goal:** working conversation with the LLM, no streaming yet.
 
-- [ ] 3.1 Define Message and Conversation types in the domain layer
-- [ ] 3.2 Implement generic chat system prompt
+- [x] 3.1 Define Message and Conversation types in the domain layer
+- [x] 3.2 Implement generic chat system prompt
 - [ ] 3.3 Native HTTP client for OpenRouter chat completions endpoint (no streaming)
 - [ ] 3.4 Send full conversation history with each request
 - [ ] 3.5 Capture usage data (prompt_tokens, completion_tokens) from response
