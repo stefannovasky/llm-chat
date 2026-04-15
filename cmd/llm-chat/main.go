@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stefannovasky/llm-chat/internal/config"
+	"github.com/stefannovasky/llm-chat/internal/llm"
 	"github.com/stefannovasky/llm-chat/internal/ui"
 )
 
@@ -21,7 +22,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(ui.New(cfg))
+	client := llm.NewClient(cfg.APIKey, cfg.DefaultModel)
+	p := tea.NewProgram(ui.New(cfg, client))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

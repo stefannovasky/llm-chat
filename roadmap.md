@@ -83,9 +83,9 @@ llm-chat/
 - [x] 3.2 Implement generic chat system prompt
 - [x] 3.3 Native HTTP client for OpenRouter chat completions endpoint (no streaming)
 - [x] 3.4 Send full conversation history with each request
-- [ ] 3.5 Capture usage data (prompt_tokens, completion_tokens) from response
-- [ ] 3.6 Display API errors inline in red
-- [ ] 3.7 Connect UI to domain: sending a message triggers the client, response appears in history
+- [x] 3.5 Capture usage data (prompt_tokens, completion_tokens) from response
+- [x] 3.6 Display API errors inline in red
+- [x] 3.7 Connect UI to domain: sending a message triggers the client, response appears in history
 
 **Result:** user chats with the LLM. Responses appear complete (no streaming).
 

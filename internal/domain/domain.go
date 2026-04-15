@@ -18,3 +18,13 @@ type Message struct {
 type Conversation struct {
 	Messages []Message
 }
+
+type Usage struct {
+	PromptTokens     int
+	CompletionTokens int
+}
+
+type ChatResult struct {
+	Message Message
+	Usage   Usage
+}

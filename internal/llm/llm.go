@@ -52,7 +52,7 @@ type chatUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 }
 
-func (c *Client) Chat(ctx context.Context, conv domain.Conversation) (domain.Message, error) {
+func (c *Client) Chat(ctx context.Context, conv domain.Conversation) (domain.ChatResult, error) {
 	msgs := make([]chatMessage, len(conv.Messages))
 	for i, m := range conv.Messages {
 		msgs[i] = chatMessage{Role: string(m.Role), Content: m.Content}
@@ -60,42 +60,48 @@ func (c *Client) Chat(ctx context.Context, conv domain.Conversation) (domain.Mes
 
 	body, err := json.Marshal(chatRequest{Model: c.model, Messages: msgs})
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("openrouter: marshal request: %w", err)
+		return domain.ChatResult{}, fmt.Errorf("openrouter: marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("openrouter: build request: %w", err)
+		return domain.ChatResult{}, fmt.Errorf("openrouter: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpCli.Do(req)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("openrouter: %w", err)
+		return domain.ChatResult{}, fmt.Errorf("openrouter: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("openrouter: read response: %w", err)
+		return domain.ChatResult{}, fmt.Errorf("openrouter: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return domain.Message{}, fmt.Errorf("openrouter: %d %s", resp.StatusCode, respBody)
+		return domain.ChatResult{}, fmt.Errorf("openrouter: %d %s", resp.StatusCode, respBody)
 	}
 
 	var result chatResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return domain.Message{}, fmt.Errorf("openrouter: unmarshal response: %w", err)
+		return domain.ChatResult{}, fmt.Errorf("openrouter: unmarshal response: %w", err)
 	}
 
 	if len(result.Choices) == 0 {
-		return domain.Message{}, fmt.Errorf("openrouter: empty response")
+		return domain.ChatResult{}, fmt.Errorf("openrouter: empty response")
 	}
 
-	return domain.Message{
-		Role:    domain.RoleAssistant,
-		Content: result.Choices[0].Message.Content,
+	return domain.ChatResult{
+		Message: domain.Message{
+			Role:    domain.RoleAssistant,
+			Content: result.Choices[0].Message.Content,
+		},
+		Usage: domain.Usage{
+			PromptTokens:     result.Usage.PromptTokens,
+			CompletionTokens: result.Usage.CompletionTokens,
+		},
 	}, nil
 }

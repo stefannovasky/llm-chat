@@ -1,26 +1,32 @@
 package ui
 
 import (
+	"context"
 	"math"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/stefannovasky/llm-chat/internal/config"
+	"github.com/stefannovasky/llm-chat/internal/domain"
+	"github.com/stefannovasky/llm-chat/internal/llm"
 )
 
 const (
 	maxInputLines = 6
 	dot           = "●"
+	errorMark     = "!"
 )
 
 var (
 	dimStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	userDotStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 	assistDotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 type role int
@@ -28,6 +34,7 @@ type role int
 const (
 	roleUser role = iota
 	roleAssistant
+	roleError
 )
 
 type message struct {
@@ -35,18 +42,27 @@ type message struct {
 	content string
 }
 
-type Model struct {
-	cfg       *config.Config
-	width     int
-	height    int
-	separator string
-	viewport  viewport.Model
-	textarea  textarea.Model
-	messages  []message
-	initCmd   tea.Cmd
+type chatResponseMsg struct {
+	result domain.ChatResult
+	err    error
 }
 
-func New(cfg *config.Config) Model {
+type Model struct {
+	cfg          *config.Config
+	client       *llm.Client
+	width        int
+	height       int
+	separator    string
+	viewport     viewport.Model
+	textarea     textarea.Model
+	spinner      spinner.Model
+	messages     []message
+	conversation domain.Conversation
+	waiting      bool
+	initCmd      tea.Cmd
+}
+
+func New(cfg *config.Config, client *llm.Client) Model {
 	ta := textarea.New()
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
@@ -74,11 +90,23 @@ func New(cfg *config.Config) Model {
 
 	vp := viewport.New()
 
+	s := spinner.New(
+		spinner.WithSpinner(spinner.Dot),
+		spinner.WithStyle(assistDotStyle),
+	)
+
 	return Model{
-		cfg:      cfg,
+		cfg:     cfg,
+		client:  client,
 		viewport: vp,
 		textarea: ta,
+		spinner:  s,
 		initCmd:  focusCmd,
+		conversation: domain.Conversation{
+			Messages: []domain.Message{
+				{Role: domain.RoleSystem, Content: domain.DefaultSystemPrompt},
+			},
+		},
 	}
 }
 
@@ -104,11 +132,6 @@ func (m *Model) recalcLayout() {
 }
 
 func (m *Model) refreshViewport() {
-	if len(m.messages) == 0 {
-		m.viewport.SetContent("")
-		return
-	}
-
 	contentWidth := m.viewport.Width() - 2 // "- 2" for "● " prefix
 	if contentWidth < 1 {
 		contentWidth = 1
@@ -120,15 +143,29 @@ func (m *Model) refreshViewport() {
 			sb.WriteString("\n\n")
 		}
 
-		var d string
-		if msg.role == roleUser {
-			d = userDotStyle.Render(dot)
+		var prefix string
+		if msg.role == roleError {
+			prefix = errorStyle.Render(errorMark) + " "
+			wrapped := errorStyle.Render(lipgloss.Wrap(msg.content, contentWidth, " "))
+			sb.WriteString(prefixLines(wrapped, prefix, "  "))
 		} else {
-			d = assistDotStyle.Render(dot)
+			if msg.role == roleUser {
+				prefix = userDotStyle.Render(dot) + " "
+			} else {
+				prefix = assistDotStyle.Render(dot) + " "
+			}
+			wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
+			sb.WriteString(prefixLines(wrapped, prefix, "  "))
 		}
+	}
 
-		wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
-		sb.WriteString(prefixLines(wrapped, d+" ", "  "))
+	if m.waiting {
+		if len(m.messages) > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(assistDotStyle.Render(dot))
+		sb.WriteString(" ")
+		sb.WriteString(m.spinner.View())
 	}
 
 	m.viewport.SetContent(sb.String())
@@ -159,21 +196,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 
+	case chatResponseMsg:
+		m.waiting = false
+		if msg.err != nil {
+			m.messages = append(m.messages, message{role: roleError, content: msg.err.Error()})
+		} else {
+			m.messages = append(m.messages, message{role: roleAssistant, content: msg.result.Message.Content})
+			m.conversation.Messages = append(m.conversation.Messages, msg.result.Message)
+		}
+		m.recalcLayout()
+		m.refreshViewport()
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case spinner.TickMsg:
+		if m.waiting {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			m.refreshViewport()
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 
 		case "enter":
-			content := strings.TrimSpace(m.textarea.Value())
-			if content != "" {
-				m.messages = append(m.messages, message{role: roleUser, content: content})
-				m.textarea.Reset()
-				m.recalcLayout()
-				m.refreshViewport()
-				m.viewport.GotoBottom()
+			if m.waiting {
+				return m, nil
 			}
-			return m, nil
+			content := strings.TrimSpace(m.textarea.Value())
+			if content == "" {
+				return m, nil
+			}
+			m.messages = append(m.messages, message{role: roleUser, content: content})
+			m.conversation.Messages = append(m.conversation.Messages, domain.Message{
+				Role:    domain.RoleUser,
+				Content: content,
+			})
+			m.textarea.Reset()
+			m.waiting = true
+			m.recalcLayout()
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+			conv := m.conversation
+			return m, tea.Batch(
+				func() tea.Msg {
+					result, err := m.client.Chat(context.Background(), conv)
+					return chatResponseMsg{result: result, err: err}
+				},
+				m.spinner.Tick,
+			)
 
 		case "pgup":
 			m.viewport.PageUp()
