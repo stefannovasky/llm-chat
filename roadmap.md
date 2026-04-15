@@ -81,8 +81,8 @@ llm-chat/
 
 - [x] 3.1 Define Message and Conversation types in the domain layer
 - [x] 3.2 Implement generic chat system prompt
-- [ ] 3.3 Native HTTP client for OpenRouter chat completions endpoint (no streaming)
-- [ ] 3.4 Send full conversation history with each request
+- [x] 3.3 Native HTTP client for OpenRouter chat completions endpoint (no streaming)
+- [x] 3.4 Send full conversation history with each request
 - [ ] 3.5 Capture usage data (prompt_tokens, completion_tokens) from response
 - [ ] 3.6 Display API errors inline in red
 - [ ] 3.7 Connect UI to domain: sending a message triggers the client, response appears in history
