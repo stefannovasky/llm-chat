@@ -52,6 +52,12 @@ type chatUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 }
 
+type apiErrorBody struct {
+	Error struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 func (c *Client) Chat(ctx context.Context, conv domain.Conversation) (domain.ChatResult, error) {
 	msgs := make([]chatMessage, len(conv.Messages))
 	for i, m := range conv.Messages {
@@ -82,6 +88,10 @@ func (c *Client) Chat(ctx context.Context, conv domain.Conversation) (domain.Cha
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		var apiErr apiErrorBody
+		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
+			return domain.ChatResult{}, fmt.Errorf("openrouter: %s", apiErr.Error.Message)
+		}
 		return domain.ChatResult{}, fmt.Errorf("openrouter: %d %s", resp.StatusCode, respBody)
 	}
 

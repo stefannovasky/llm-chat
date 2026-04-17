@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -36,32 +37,25 @@ func Load() (*Config, error) {
 
 	var cfg Config
 	_, err := toml.DecodeFile(path, &cfg)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("failed to read config: %w", err)
-		}
+	switch {
+	case errors.Is(err, os.ErrNotExist):
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create config directory: %w", err)
+			return nil, fmt.Errorf("create config dir: %w", err)
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create config file: %w", err)
-		}
-		_, werr := f.WriteString(templateConfig)
-		f.Close()
-		if werr != nil {
-			return nil, fmt.Errorf("failed to write config file: %w", werr)
+		if err := os.WriteFile(path, []byte(templateConfig), 0644); err != nil {
+			return nil, fmt.Errorf("write config: %w", err)
 		}
 		return nil, ErrFirstRun
+	case err != nil:
+		return nil, fmt.Errorf("read config: %w", err)
 	}
 
+	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("api_key is required. Set it in %s", path)
 	}
-
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = defaultModel
 	}
-
 	return &cfg, nil
 }
