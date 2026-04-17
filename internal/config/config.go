@@ -42,8 +42,16 @@ func Load() (*Config, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return nil, fmt.Errorf("create config dir: %w", err)
 		}
-		if err := os.WriteFile(path, []byte(templateConfig), 0644); err != nil {
-			return nil, fmt.Errorf("write config: %w", err)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			return nil, fmt.Errorf("create config file: %w", err)
+		}
+		_, writeErr := f.WriteString(templateConfig)
+		if err := f.Close(); writeErr == nil && err != nil {
+			writeErr = err
+		}
+		if writeErr != nil {
+			return nil, fmt.Errorf("write config: %w", writeErr)
 		}
 		return nil, ErrFirstRun
 	case err != nil:
