@@ -13,6 +13,7 @@ import (
 	glamour "charm.land/glamour/v2"
 	glamourstyles "charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
+	"github.com/stefannovasky/llm-chat/internal/commands"
 	"github.com/stefannovasky/llm-chat/internal/config"
 	"github.com/stefannovasky/llm-chat/internal/domain"
 	"github.com/stefannovasky/llm-chat/internal/llm"
@@ -358,6 +359,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			content := strings.TrimSpace(m.textarea.Value())
 			if content == "" {
+				return m, nil
+			}
+			if cmd, ok := commands.Parse(content); ok {
+				m.textarea.Reset()
+				m.recalcLayout()
+				_ = cmd
+				m.messages = append(m.messages, message{role: roleError, content: "unknown command: " + content})
+				m.refreshViewport()
+				m.viewport.GotoBottom()
 				return m, nil
 			}
 			m.messages = append(m.messages, message{role: roleUser, content: content})
