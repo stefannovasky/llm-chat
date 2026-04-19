@@ -284,15 +284,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if wasAtBottom {
 				m.viewport.GotoBottom()
 			}
-			if m.streamCh != nil {
-				ch := m.streamCh
-				m.streamCh = nil
-				return m, func() tea.Msg {
-					for range ch {
-					}
-					return nil
-				}
-			}
 			return m, nil
 		}
 

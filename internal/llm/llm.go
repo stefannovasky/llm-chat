@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -170,7 +169,7 @@ func parseStream(ctx context.Context, body io.ReadCloser, ch chan<- domain.Strea
 	if ctx.Err() != nil {
 		return
 	}
-	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+	if err := scanner.Err(); err != nil {
 		ch <- domain.StreamEvent{Err: fmt.Errorf("openrouter: read stream: %w", err)}
 	}
 }
