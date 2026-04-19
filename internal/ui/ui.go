@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	glamour "charm.land/glamour/v2"
+	glamourstyles "charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	"github.com/stefannovasky/llm-chat/internal/config"
 	"github.com/stefannovasky/llm-chat/internal/domain"
@@ -25,8 +26,8 @@ const (
 
 var (
 	dimStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	userDotStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	assistDotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	userDotStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	assistDotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
@@ -147,8 +148,11 @@ func (m *Model) recalcLayout() {
 		contentWidth = 1
 	}
 	if m.mdRenderer == nil || m.mdRendererWidth != contentWidth {
+		style := glamourstyles.DarkStyleConfig
+		zero := uint(0)
+		style.Document.Margin = &zero
 		r, err := glamour.NewTermRenderer(
-			glamour.WithEnvironmentConfig(),
+			glamour.WithStyles(style),
 			glamour.WithWordWrap(contentWidth),
 		)
 		if err == nil {
