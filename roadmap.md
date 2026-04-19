@@ -95,12 +95,12 @@ llm-chat/
 
 **Goal:** responses appear token by token in real time.
 
-- [ ] 4.1 SSE parsing in the HTTP client
-- [ ] 4.2 Incremental UI updates with each received token
-- [ ] 4.3 Block input while streaming is active
-- [ ] 4.4 Ctrl+C during streaming cancels the current response (text already received is kept)
-- [ ] 4.5 Second Ctrl+C exits the app
-- [ ] 4.6 Visual "typing" indicator while streaming is active
+- [x] 4.1 SSE parsing in the HTTP client
+- [x] 4.2 Incremental UI updates with each received token
+- [x] 4.3 Block input while streaming is active
+- [x] 4.4 Ctrl+C during streaming cancels the current response (text already received is kept)
+- [x] 4.5 Second Ctrl+C exits the app
+- [x] 4.6 Visual "typing" indicator while streaming is active
 
 **Result:** responses flow token by token. Input blocked during generation. Ctrl+C cancels.
 
