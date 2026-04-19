@@ -10,7 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const defaultModel = "openai/gpt-4o-mini"
+const HardcodedDefaultModel = "openai/gpt-4o-mini"
 
 // ErrFirstRun is returned when no config file exists and a template was created.
 var ErrFirstRun = errors.New("first run")
@@ -62,8 +62,6 @@ func Load() (*Config, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("api_key is required. Set it in %s", path)
 	}
-	if cfg.DefaultModel == "" {
-		cfg.DefaultModel = defaultModel
-	}
+	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
 	return &cfg, nil
 }

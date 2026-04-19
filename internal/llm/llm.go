@@ -19,11 +19,10 @@ const endpoint = "https://openrouter.ai/api/v1/chat/completions"
 
 type Client struct {
 	apiKey  string
-	model   string
 	httpCli *http.Client
 }
 
-func NewClient(apiKey, model string) *Client {
+func NewClient(apiKey string) *Client {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
@@ -33,7 +32,6 @@ func NewClient(apiKey, model string) *Client {
 	}
 	return &Client{
 		apiKey:  apiKey,
-		model:   model,
 		httpCli: &http.Client{Transport: transport},
 	}
 }
@@ -78,14 +76,14 @@ type apiErrorBody struct {
 // Stream starts a streaming chat completion. The returned channel is closed
 // when the stream ends (success, error, or ctx cancel). Errors before the
 // channel can be returned are returned directly.
-func (c *Client) Stream(ctx context.Context, conv domain.Conversation) (<-chan domain.StreamEvent, error) {
+func (c *Client) Stream(ctx context.Context, model string, conv domain.Conversation) (<-chan domain.StreamEvent, error) {
 	msgs := make([]chatMessage, len(conv.Messages))
 	for i, m := range conv.Messages {
 		msgs[i] = chatMessage{Role: string(m.Role), Content: m.Content}
 	}
 
 	body, err := json.Marshal(chatRequest{
-		Model:         c.model,
+		Model:         model,
 		Messages:      msgs,
 		Stream:        true,
 		StreamOptions: streamOptions{IncludeUsage: true},

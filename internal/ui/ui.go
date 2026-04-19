@@ -17,7 +17,13 @@ import (
 	"github.com/stefannovasky/llm-chat/internal/config"
 	"github.com/stefannovasky/llm-chat/internal/domain"
 	"github.com/stefannovasky/llm-chat/internal/llm"
+	"github.com/stefannovasky/llm-chat/internal/models"
 )
+
+type modelsLoadedMsg struct {
+	all []models.Model
+	err error
+}
 
 const (
 	maxInputLines = 6
@@ -56,26 +62,31 @@ type streamEventMsg struct {
 }
 
 type Model struct {
-	cfg            *config.Config
-	client         *llm.Client
-	width          int
-	height         int
-	separator      string
-	viewport       viewport.Model
-	textarea       textarea.Model
-	spinner        spinner.Model
-	messages       []message
-	conversation   domain.Conversation
-	streaming      bool
-	streamBuf      *strings.Builder
-	streamCh       <-chan domain.StreamEvent
-	cancel         context.CancelFunc
-	initCmd        tea.Cmd
-	mdRenderer     *glamour.TermRenderer
+	cfg             *config.Config
+	client          *llm.Client
+	currentModel    string
+	state           models.State
+	modelsCache     []models.Model
+	picker          pickerModel
+	pickerActive    bool
+	width           int
+	height          int
+	separator       string
+	viewport        viewport.Model
+	textarea        textarea.Model
+	spinner         spinner.Model
+	messages        []message
+	conversation    domain.Conversation
+	streaming       bool
+	streamBuf       *strings.Builder
+	streamCh        <-chan domain.StreamEvent
+	cancel          context.CancelFunc
+	initCmd         tea.Cmd
+	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
 }
 
-func New(cfg *config.Config, client *llm.Client) Model {
+func New(cfg *config.Config, client *llm.Client, currentModel string, state models.State) Model {
 	ta := textarea.New()
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
@@ -109,13 +120,15 @@ func New(cfg *config.Config, client *llm.Client) Model {
 	)
 
 	return Model{
-		cfg:       cfg,
-		client:    client,
-		viewport:  vp,
-		textarea:  ta,
-		spinner:   s,
-		initCmd:   focusCmd,
-		streamBuf: &strings.Builder{},
+		cfg:          cfg,
+		client:       client,
+		currentModel: currentModel,
+		state:        state,
+		viewport:     vp,
+		textarea:     ta,
+		spinner:      s,
+		initCmd:      focusCmd,
+		streamBuf:    &strings.Builder{},
 		conversation: domain.Conversation{
 			Messages: []domain.Message{
 				{Role: domain.RoleSystem, Content: domain.DefaultSystemPrompt},
@@ -236,14 +249,41 @@ func prefixLines(s, first, rest string) string {
 	return sb.String()
 }
 
-func startStreamCmd(ctx context.Context, client *llm.Client, conv domain.Conversation) tea.Cmd {
+func startStreamCmd(ctx context.Context, client *llm.Client, model string, conv domain.Conversation) tea.Cmd {
 	return func() tea.Msg {
-		ch, err := client.Stream(ctx, conv)
+		ch, err := client.Stream(ctx, model, conv)
 		if err != nil {
 			return streamStartMsg{err: err}
 		}
 		return streamStartMsg{ch: ch}
 	}
+}
+
+func fetchModelsCmd() tea.Cmd {
+	return func() tea.Msg {
+		all, err := models.Fetch(context.Background())
+		return modelsLoadedMsg{all: all, err: err}
+	}
+}
+
+func (m *Model) openPicker() tea.Cmd {
+	p := newPicker(m.width, m.height, m.currentModel)
+	if m.modelsCache != nil {
+		p.setModels(m.modelsCache, m.state.Recent)
+	}
+	m.picker = p
+	m.pickerActive = true
+
+	if m.modelsCache != nil {
+		return nil
+	}
+	return tea.Batch(fetchModelsCmd(), p.spinner.Tick)
+}
+
+func (m *Model) selectModel(id string) {
+	m.currentModel = id
+	m.state.Touch(id)
+	_ = models.SaveState(m.state)
 }
 
 func waitForEvent(ch <-chan domain.StreamEvent) tea.Cmd {
@@ -282,6 +322,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.separator = dimStyle.Render(strings.Repeat("─", m.width))
 		m.recalcLayout()
 		m.refreshViewport()
+		if m.pickerActive {
+			m.picker.setSize(m.width, m.height)
+		}
+		return m, nil
+
+	case modelsLoadedMsg:
+		if msg.err == nil {
+			m.modelsCache = msg.all
+		}
+		if m.pickerActive {
+			if msg.err != nil {
+				m.picker.setError("failed to fetch models: " + msg.err.Error())
+			} else {
+				m.picker.setModels(msg.all, m.state.Recent)
+			}
+		}
 		return m, nil
 
 	case streamStartMsg:
@@ -335,6 +391,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForEvent(m.streamCh)
 
 	case spinner.TickMsg:
+		if m.pickerActive && m.picker.loading {
+			var cmd tea.Cmd
+			m.picker, cmd = m.picker.Update(msg)
+			return m, tea.Batch(cmd, m.picker.spinner.Tick)
+		}
 		if m.streaming {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
@@ -344,6 +405,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.pickerActive {
+			var cmd tea.Cmd
+			m.picker, cmd = m.picker.Update(msg)
+			if m.picker.done {
+				m.pickerActive = false
+				if m.picker.selected != "" {
+					m.selectModel(m.picker.selected)
+				}
+				return m, nil
+			}
+			return m, cmd
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			if m.streaming {
@@ -364,9 +437,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if content == "" {
 				return m, nil
 			}
-			if _, ok := commands.Parse(content); ok {
+			if cmd, ok := commands.Parse(content); ok {
 				m.textarea.Reset()
-				m.addError("unknown command: " + content)
+				switch cmd.Name {
+				case "model":
+					return m, m.openPicker()
+				default:
+					m.addError("unknown command: /" + cmd.Name)
+				}
 				return m, nil
 			}
 			m.messages = append(m.messages, message{role: roleUser, content: content})
@@ -383,7 +461,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 			return m, tea.Batch(
-				startStreamCmd(ctx, m.client, m.conversation),
+				startStreamCmd(ctx, m.client, m.currentModel, m.conversation),
 				m.spinner.Tick,
 			)
 
@@ -410,6 +488,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.pickerActive {
+		var cmd tea.Cmd
+		m.picker, cmd = m.picker.Update(msg)
+		return m, cmd
+	}
+
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
 	return m, cmd
@@ -421,6 +505,11 @@ func (m Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 
 	if m.width == 0 {
+		return v
+	}
+
+	if m.pickerActive {
+		v.SetContent(m.picker.View())
 		return v
 	}
 
