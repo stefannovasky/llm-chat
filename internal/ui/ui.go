@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	glamour "charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/stefannovasky/llm-chat/internal/config"
 	"github.com/stefannovasky/llm-chat/internal/domain"
@@ -53,21 +54,23 @@ type streamEventMsg struct {
 }
 
 type Model struct {
-	cfg          *config.Config
-	client       *llm.Client
-	width        int
-	height       int
-	separator    string
-	viewport     viewport.Model
-	textarea     textarea.Model
-	spinner      spinner.Model
-	messages     []message
-	conversation domain.Conversation
-	streaming    bool
-	streamBuf    strings.Builder
-	streamCh     <-chan domain.StreamEvent
-	cancel       context.CancelFunc
-	initCmd      tea.Cmd
+	cfg            *config.Config
+	client         *llm.Client
+	width          int
+	height         int
+	separator      string
+	viewport       viewport.Model
+	textarea       textarea.Model
+	spinner        spinner.Model
+	messages       []message
+	conversation   domain.Conversation
+	streaming      bool
+	streamBuf      strings.Builder
+	streamCh       <-chan domain.StreamEvent
+	cancel         context.CancelFunc
+	initCmd        tea.Cmd
+	mdRenderer     *glamour.TermRenderer
+	mdRendererWidth int
 }
 
 func New(cfg *config.Config, client *llm.Client) Model {
@@ -137,6 +140,21 @@ func (m *Model) recalcLayout() {
 
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(vpHeight)
+
+	contentWidth := m.width - 2 // "- 2" for "● " prefix
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	if m.mdRenderer == nil || m.mdRendererWidth != contentWidth {
+		r, err := glamour.NewTermRenderer(
+			glamour.WithEnvironmentConfig(),
+			glamour.WithWordWrap(contentWidth),
+		)
+		if err == nil {
+			m.mdRenderer = r
+			m.mdRendererWidth = contentWidth
+		}
+	}
 }
 
 func (m *Model) refreshViewport() {
@@ -159,11 +177,13 @@ func (m *Model) refreshViewport() {
 		} else {
 			if msg.role == roleUser {
 				prefix = userDotStyle.Render(dot) + " "
+				wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
+				sb.WriteString(prefixLines(wrapped, prefix, "  "))
 			} else {
 				prefix = assistDotStyle.Render(dot) + " "
+				rendered := m.renderMarkdown(msg.content, contentWidth)
+				sb.WriteString(prefixLines(rendered, prefix, "  "))
 			}
-			wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
-			sb.WriteString(prefixLines(wrapped, prefix, "  "))
 		}
 	}
 
@@ -184,6 +204,15 @@ func (m *Model) refreshViewport() {
 	}
 
 	m.viewport.SetContent(sb.String())
+}
+
+func (m *Model) renderMarkdown(content string, width int) string {
+	if m.mdRenderer != nil {
+		if out, err := m.mdRenderer.Render(content); err == nil {
+			return strings.TrimSpace(out)
+		}
+	}
+	return lipgloss.Wrap(content, width, " ")
 }
 
 func prefixLines(s, first, rest string) string {

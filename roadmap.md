@@ -110,8 +110,8 @@ llm-chat/
 
 **Goal:** assistant responses are rendered with proper formatting.
 
-- [ ] 5.1 Integrate Glamour for Markdown rendering in assistant responses
-- [ ] 5.2 Code blocks, bold, italic, lists rendered correctly in the terminal
+- [x] 5.1 Integrate Glamour for Markdown rendering in assistant responses
+- [x] 5.2 Code blocks, bold, italic, lists rendered correctly in the terminal
 
 **Result:** MVP complete. User can chat with an LLM in the terminal with streaming and formatted responses.
 
