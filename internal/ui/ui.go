@@ -42,9 +42,14 @@ type message struct {
 	content string
 }
 
-type chatResponseMsg struct {
-	result domain.ChatResult
-	err    error
+type streamStartMsg struct {
+	ch  <-chan domain.StreamEvent
+	err error
+}
+
+type streamEventMsg struct {
+	ev domain.StreamEvent
+	ok bool
 }
 
 type Model struct {
@@ -58,7 +63,10 @@ type Model struct {
 	spinner      spinner.Model
 	messages     []message
 	conversation domain.Conversation
-	waiting      bool
+	streaming    bool
+	streamBuf    strings.Builder
+	streamCh     <-chan domain.StreamEvent
+	cancel       context.CancelFunc
 	initCmd      tea.Cmd
 }
 
@@ -96,8 +104,8 @@ func New(cfg *config.Config, client *llm.Client) Model {
 	)
 
 	return Model{
-		cfg:     cfg,
-		client:  client,
+		cfg:      cfg,
+		client:   client,
 		viewport: vp,
 		textarea: ta,
 		spinner:  s,
@@ -159,13 +167,20 @@ func (m *Model) refreshViewport() {
 		}
 	}
 
-	if m.waiting {
+	if m.streaming {
 		if len(m.messages) > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString(assistDotStyle.Render(dot))
-		sb.WriteString(" ")
-		sb.WriteString(m.spinner.View())
+		prefix := assistDotStyle.Render(dot) + " "
+		if m.streamBuf.Len() == 0 {
+			sb.WriteString(prefix)
+			sb.WriteString(m.spinner.View())
+		} else {
+			wrapped := lipgloss.Wrap(m.streamBuf.String(), contentWidth, " ")
+			sb.WriteString(prefixLines(wrapped, prefix, "  "))
+			sb.WriteString(" ")
+			sb.WriteString(m.spinner.View())
+		}
 	}
 
 	m.viewport.SetContent(sb.String())
@@ -186,6 +201,38 @@ func prefixLines(s, first, rest string) string {
 	return sb.String()
 }
 
+func startStreamCmd(ctx context.Context, client *llm.Client, conv domain.Conversation) tea.Cmd {
+	return func() tea.Msg {
+		ch, err := client.Stream(ctx, conv)
+		if err != nil {
+			return streamStartMsg{err: err}
+		}
+		return streamStartMsg{ch: ch}
+	}
+}
+
+func waitForEvent(ch <-chan domain.StreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		return streamEventMsg{ev: ev, ok: ok}
+	}
+}
+
+func (m *Model) finalizeStream() {
+	if m.streamBuf.Len() > 0 {
+		content := m.streamBuf.String()
+		m.messages = append(m.messages, message{role: roleAssistant, content: content})
+		m.conversation.Messages = append(m.conversation.Messages, domain.Message{
+			Role:    domain.RoleAssistant,
+			Content: content,
+		})
+	}
+	m.streamBuf.Reset()
+	m.streaming = false
+	m.streamCh = nil
+	m.cancel = nil
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -196,21 +243,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 
-	case chatResponseMsg:
-		m.waiting = false
+	case streamStartMsg:
 		if msg.err != nil {
+			m.streaming = false
+			if m.cancel != nil {
+				m.cancel()
+				m.cancel = nil
+			}
 			m.messages = append(m.messages, message{role: roleError, content: msg.err.Error()})
-		} else {
-			m.messages = append(m.messages, message{role: roleAssistant, content: msg.result.Message.Content})
-			m.conversation.Messages = append(m.conversation.Messages, msg.result.Message)
+			m.recalcLayout()
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+			return m, nil
 		}
-		m.recalcLayout()
-		m.refreshViewport()
-		m.viewport.GotoBottom()
-		return m, nil
+		m.streamCh = msg.ch
+		return m, waitForEvent(msg.ch)
+
+	case streamEventMsg:
+		wasAtBottom := m.viewport.AtBottom()
+
+		if !msg.ok {
+			if m.cancel != nil {
+				m.cancel()
+			}
+			m.finalizeStream()
+			m.refreshViewport()
+			if wasAtBottom {
+				m.viewport.GotoBottom()
+			}
+			return m, nil
+		}
+
+		if msg.ev.Err != nil {
+			if m.cancel != nil {
+				m.cancel()
+			}
+			m.finalizeStream()
+			m.messages = append(m.messages, message{role: roleError, content: msg.ev.Err.Error()})
+			m.refreshViewport()
+			if wasAtBottom {
+				m.viewport.GotoBottom()
+			}
+			if m.streamCh != nil {
+				ch := m.streamCh
+				m.streamCh = nil
+				return m, func() tea.Msg {
+					for range ch {
+					}
+					return nil
+				}
+			}
+			return m, nil
+		}
+
+		if msg.ev.Delta != "" {
+			m.streamBuf.WriteString(msg.ev.Delta)
+			m.refreshViewport()
+			if wasAtBottom {
+				m.viewport.GotoBottom()
+			}
+		}
+		return m, waitForEvent(m.streamCh)
 
 	case spinner.TickMsg:
-		if m.waiting {
+		if m.streaming {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			m.refreshViewport()
@@ -221,10 +317,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
+			if m.streaming {
+				if m.cancel != nil {
+					m.cancel()
+				}
+				// Do not finalize here; wait for channel close so any pending
+				// events are drained through the normal path.
+				return m, nil
+			}
 			return m, tea.Quit
 
 		case "enter":
-			if m.waiting {
+			if m.streaming {
 				return m, nil
 			}
 			content := strings.TrimSpace(m.textarea.Value())
@@ -237,16 +341,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: content,
 			})
 			m.textarea.Reset()
-			m.waiting = true
+			m.streaming = true
+			m.streamBuf.Reset()
+			ctx, cancel := context.WithCancel(context.Background())
+			m.cancel = cancel
 			m.recalcLayout()
 			m.refreshViewport()
 			m.viewport.GotoBottom()
-			conv := m.conversation
 			return m, tea.Batch(
-				func() tea.Msg {
-					result, err := m.client.Chat(context.Background(), conv)
-					return chatResponseMsg{result: result, err: err}
-				},
+				startStreamCmd(ctx, m.client, m.conversation),
 				m.spinner.Tick,
 			)
 

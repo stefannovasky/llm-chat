@@ -24,7 +24,8 @@ type Usage struct {
 	CompletionTokens int
 }
 
-type ChatResult struct {
-	Message Message
-	Usage   Usage
+type StreamEvent struct {
+	Delta string
+	Usage *Usage
+	Err   error
 }
