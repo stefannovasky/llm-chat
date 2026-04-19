@@ -7,8 +7,6 @@ type Command struct {
 	Args []string
 }
 
-// Parse parses a slash command from input. Returns (Command, true) if input
-// starts with '/' followed immediately by a non-empty command name.
 func Parse(input string) (Command, bool) {
 	if !strings.HasPrefix(input, "/") {
 		return Command{}, false

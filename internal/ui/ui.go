@@ -253,6 +253,12 @@ func waitForEvent(ch <-chan domain.StreamEvent) tea.Cmd {
 	}
 }
 
+func (m *Model) addError(text string) {
+	m.messages = append(m.messages, message{role: roleError, content: text})
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+}
+
 func (m *Model) finalizeStream() {
 	if m.streamBuf.Len() > 0 {
 		content := m.streamBuf.String()
@@ -285,10 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancel()
 				m.cancel = nil
 			}
-			m.messages = append(m.messages, message{role: roleError, content: msg.err.Error()})
-			m.recalcLayout()
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.addError(msg.err.Error())
 			return m, nil
 		}
 		m.streamCh = msg.ch
@@ -361,13 +364,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if content == "" {
 				return m, nil
 			}
-			if cmd, ok := commands.Parse(content); ok {
+			if _, ok := commands.Parse(content); ok {
 				m.textarea.Reset()
-				m.recalcLayout()
-				_ = cmd
-				m.messages = append(m.messages, message{role: roleError, content: "unknown command: " + content})
-				m.refreshViewport()
-				m.viewport.GotoBottom()
+				m.addError("unknown command: " + content)
 				return m, nil
 			}
 			m.messages = append(m.messages, message{role: roleUser, content: content})
