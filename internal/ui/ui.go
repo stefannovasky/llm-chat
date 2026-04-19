@@ -65,7 +65,7 @@ type Model struct {
 	messages       []message
 	conversation   domain.Conversation
 	streaming      bool
-	streamBuf      strings.Builder
+	streamBuf      *strings.Builder
 	streamCh       <-chan domain.StreamEvent
 	cancel         context.CancelFunc
 	initCmd        tea.Cmd
@@ -107,12 +107,13 @@ func New(cfg *config.Config, client *llm.Client) Model {
 	)
 
 	return Model{
-		cfg:      cfg,
-		client:   client,
-		viewport: vp,
-		textarea: ta,
-		spinner:  s,
-		initCmd:  focusCmd,
+		cfg:       cfg,
+		client:    client,
+		viewport:  vp,
+		textarea:  ta,
+		spinner:   s,
+		initCmd:   focusCmd,
+		streamBuf: &strings.Builder{},
 		conversation: domain.Conversation{
 			Messages: []domain.Message{
 				{Role: domain.RoleSystem, Content: domain.DefaultSystemPrompt},
