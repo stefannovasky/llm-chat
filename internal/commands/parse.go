@@ -4,7 +4,6 @@ import "strings"
 
 type Command struct {
 	Name string
-	Args []string
 }
 
 func Parse(input string) (Command, bool) {
@@ -15,6 +14,5 @@ func Parse(input string) (Command, bool) {
 	if rest == "" || rest[0] == ' ' {
 		return Command{}, false
 	}
-	parts := strings.Fields(rest)
-	return Command{Name: parts[0], Args: parts[1:]}, true
+	return Command{Name: strings.Fields(rest)[0]}, true
 }

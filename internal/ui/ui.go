@@ -394,7 +394,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickerActive && m.picker.loading {
 			var cmd tea.Cmd
 			m.picker, cmd = m.picker.Update(msg)
-			return m, tea.Batch(cmd, m.picker.spinner.Tick)
+			return m, cmd
 		}
 		if m.streaming {
 			var cmd tea.Cmd
