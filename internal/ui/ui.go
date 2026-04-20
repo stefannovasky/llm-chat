@@ -451,12 +451,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamStartMsg:
 		if msg.err != nil {
+			cancelled := m.compacting && m.compactCancelled
 			m.streaming = false
 			if m.cancel != nil {
 				m.cancel()
 			}
 			m.resetCompactState()
-			m.addError(msg.err.Error())
+			if cancelled {
+				m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
+				m.refreshViewport()
+				m.viewport.GotoBottom()
+			} else {
+				m.addError(msg.err.Error())
+			}
 			return m, nil
 		}
 		m.streamCh = msg.ch
