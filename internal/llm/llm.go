@@ -83,9 +83,12 @@ type apiErrorBody struct {
 // when the stream ends (success, error, or ctx cancel). Errors before the
 // channel can be returned are returned directly.
 func (c *Client) Stream(ctx context.Context, model string, conv domain.Conversation) (<-chan domain.StreamEvent, error) {
-	msgs := make([]chatMessage, len(conv.Messages))
-	for i, m := range conv.Messages {
-		msgs[i] = chatMessage{Role: string(m.Role), Content: m.Content}
+	msgs := make([]chatMessage, 0, len(conv.Messages))
+	for _, m := range conv.Messages {
+		if m.CompactedAt != nil {
+			continue
+		}
+		msgs = append(msgs, chatMessage{Role: string(m.Role), Content: m.Content})
 	}
 
 	body, err := json.Marshal(chatRequest{
