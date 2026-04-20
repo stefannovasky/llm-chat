@@ -12,10 +12,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stefannovasky/llm-chat/internal/domain"
+	"github.com/stefannovasky/llm-chat/internal/sessions"
 )
 
 const endpoint = "https://openrouter.ai/api/v1/chat/completions"
+
+type StreamEvent struct {
+	Delta string
+	Usage *Usage
+	Err   error
+}
+
+type Usage struct {
+	PromptTokens     int
+	CompletionTokens int
+	Cost             float64
+}
 
 type Client struct {
 	apiKey  string
@@ -82,7 +94,7 @@ type apiErrorBody struct {
 // Stream starts a streaming chat completion. The returned channel is closed
 // when the stream ends (success, error, or ctx cancel). Errors before the
 // channel can be returned are returned directly.
-func (c *Client) Stream(ctx context.Context, model string, conv domain.Conversation) (<-chan domain.StreamEvent, error) {
+func (c *Client) Stream(ctx context.Context, model string, conv sessions.Conversation) (<-chan StreamEvent, error) {
 	msgs := make([]chatMessage, 0, len(conv.Messages))
 	for _, m := range conv.Messages {
 		if m.CompactedAt != nil {
@@ -125,12 +137,12 @@ func (c *Client) Stream(ctx context.Context, model string, conv domain.Conversat
 		return nil, fmt.Errorf("openrouter: %d %s", resp.StatusCode, respBody)
 	}
 
-	ch := make(chan domain.StreamEvent)
+	ch := make(chan StreamEvent)
 	go parseStream(ctx, resp.Body, ch)
 	return ch, nil
 }
 
-func parseStream(ctx context.Context, body io.ReadCloser, ch chan<- domain.StreamEvent) {
+func parseStream(ctx context.Context, body io.ReadCloser, ch chan<- StreamEvent) {
 	defer close(ch)
 	defer body.Close()
 
@@ -153,21 +165,21 @@ func parseStream(ctx context.Context, body io.ReadCloser, ch chan<- domain.Strea
 
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			ch <- domain.StreamEvent{Err: fmt.Errorf("openrouter: parse chunk: %w", err)}
+			ch <- StreamEvent{Err: fmt.Errorf("openrouter: parse chunk: %w", err)}
 			return
 		}
 
 		if chunk.Error != nil {
-			ch <- domain.StreamEvent{Err: fmt.Errorf("openrouter: %s", chunk.Error.Message)}
+			ch <- StreamEvent{Err: fmt.Errorf("openrouter: %s", chunk.Error.Message)}
 			return
 		}
 
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			ch <- domain.StreamEvent{Delta: chunk.Choices[0].Delta.Content}
+			ch <- StreamEvent{Delta: chunk.Choices[0].Delta.Content}
 		}
 
 		if chunk.Usage != nil {
-			ch <- domain.StreamEvent{Usage: &domain.Usage{
+			ch <- StreamEvent{Usage: &Usage{
 				PromptTokens:     chunk.Usage.PromptTokens,
 				CompletionTokens: chunk.Usage.CompletionTokens,
 				Cost:             chunk.Usage.Cost,
@@ -179,6 +191,6 @@ func parseStream(ctx context.Context, body io.ReadCloser, ch chan<- domain.Strea
 		return
 	}
 	if err := scanner.Err(); err != nil {
-		ch <- domain.StreamEvent{Err: fmt.Errorf("openrouter: read stream: %w", err)}
+		ch <- StreamEvent{Err: fmt.Errorf("openrouter: read stream: %w", err)}
 	}
 }

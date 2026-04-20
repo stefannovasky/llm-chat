@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stefannovasky/llm-chat/internal/domain"
-	"github.com/stefannovasky/llm-chat/internal/fsutil"
+	"github.com/stefannovasky/llm-chat/internal/storage"
 )
 
 const (
@@ -20,13 +19,35 @@ const (
 	titleMaxRunes  = 60
 )
 
+type Role string
+
+const (
+	RoleSystem    Role = "system"
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+)
+
+type Message struct {
+	Role             Role       `json:"role"`
+	Content          string     `json:"content"`
+	Model            string     `json:"model,omitempty"`
+	PromptTokens     int        `json:"prompt_tokens,omitempty"`
+	CompletionTokens int        `json:"completion_tokens,omitempty"`
+	Cost             float64    `json:"cost,omitempty"`
+	CompactedAt      *time.Time `json:"compacted_at,omitempty"`
+}
+
+type Conversation struct {
+	Messages []Message
+}
+
 type Session struct {
-	Version   int              `json:"version"`
-	ID        string           `json:"id"`
-	Title     string           `json:"title"`
-	CreatedAt time.Time        `json:"created_at"`
-	UpdatedAt time.Time        `json:"updated_at"`
-	Messages  []domain.Message `json:"messages"`
+	Version   int       `json:"version"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Messages  []Message `json:"messages"`
 }
 
 type Summary struct {
@@ -38,15 +59,13 @@ type Summary struct {
 }
 
 func Dir() string {
-	return fsutil.XDGPath("XDG_DATA_HOME", ".local/share", "llm-chat", "sessions")
+	return storage.XDGPath("XDG_DATA_HOME", ".local/share", "llm-chat", "sessions")
 }
 
 func NewID() string {
 	now := time.Now().UTC()
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand virtually never fails, but fall back to a time-based
-		// suffix so IDs remain unique within a second.
 		return now.Format("20060102T150405.000000000Z")
 	}
 	return now.Format("20060102T150405Z") + "-" + hex.EncodeToString(b[:])
@@ -54,9 +73,9 @@ func NewID() string {
 
 // DeriveTitle returns a single-line title derived from the first user message.
 // Returns "" when no user message exists yet.
-func DeriveTitle(msgs []domain.Message) string {
+func DeriveTitle(msgs []Message) string {
 	for _, m := range msgs {
-		if m.Role != domain.RoleUser {
+		if m.Role != RoleUser {
 			continue
 		}
 		t := strings.Join(strings.Fields(m.Content), " ")
@@ -90,7 +109,7 @@ func Save(s *Session) error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteJSONAtomic(path, s, true)
+	return storage.WriteJSONAtomic(path, s, true)
 }
 
 func Load(id string) (*Session, error) {

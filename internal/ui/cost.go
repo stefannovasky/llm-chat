@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/stefannovasky/llm-chat/internal/domain"
+	"github.com/stefannovasky/llm-chat/internal/sessions"
 )
 
 type costPanel struct {
@@ -22,7 +22,7 @@ type modelStats struct {
 	cost             float64
 }
 
-func newCostPanel(width, height int, conv domain.Conversation) costPanel {
+func newCostPanel(width, height int, conv sessions.Conversation) costPanel {
 	return costPanel{
 		content: buildCostContent(conv),
 		width:   width,
@@ -30,7 +30,7 @@ func newCostPanel(width, height int, conv domain.Conversation) costPanel {
 	}
 }
 
-func buildCostContent(conv domain.Conversation) string {
+func buildCostContent(conv sessions.Conversation) string {
 	stats := make(map[string]*modelStats, 4)
 	order := make([]string, 0, 4)
 
