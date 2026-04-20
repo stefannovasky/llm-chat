@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
@@ -44,6 +45,7 @@ const (
 	roleUser role = iota
 	roleAssistant
 	roleError
+	roleInfo
 )
 
 type message struct {
@@ -62,31 +64,35 @@ type streamEventMsg struct {
 }
 
 type Model struct {
-	cfg             *config.Config
-	client          *llm.Client
-	currentModel    string
-	state           models.State
-	modelsCache     []models.Model
-	picker          pickerModel
-	pickerActive    bool
-	cost            costPanel
-	costActive      bool
-	width           int
-	height          int
-	separator       string
-	viewport        viewport.Model
-	textarea        textarea.Model
-	spinner         spinner.Model
-	messages        []message
-	conversation    domain.Conversation
-	streaming       bool
-	streamBuf       *strings.Builder
-	streamCh        <-chan domain.StreamEvent
-	streamUsage     *domain.Usage
-	cancel          context.CancelFunc
-	initCmd         tea.Cmd
-	mdRenderer      *glamour.TermRenderer
-	mdRendererWidth int
+	cfg              *config.Config
+	client           *llm.Client
+	currentModel     string
+	state            models.State
+	modelsCache      []models.Model
+	picker           pickerModel
+	pickerActive     bool
+	cost             costPanel
+	costActive       bool
+	width            int
+	height           int
+	separator        string
+	viewport         viewport.Model
+	textarea         textarea.Model
+	spinner          spinner.Model
+	messages         []message
+	conversation     domain.Conversation
+	streaming        bool
+	streamBuf        *strings.Builder
+	streamCh         <-chan domain.StreamEvent
+	streamUsage      *domain.Usage
+	cancel           context.CancelFunc
+	compacting       bool
+	compactBuf       *strings.Builder
+	compactUsage     *domain.Usage
+	compactCancelled bool
+	initCmd          tea.Cmd
+	mdRenderer       *glamour.TermRenderer
+	mdRendererWidth  int
 }
 
 func New(cfg *config.Config, client *llm.Client, currentModel string, state models.State) Model {
@@ -132,6 +138,7 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state mode
 		spinner:      s,
 		initCmd:      focusCmd,
 		streamBuf:    &strings.Builder{},
+		compactBuf:   &strings.Builder{},
 		conversation: domain.Conversation{
 			Messages: []domain.Message{
 				{Role: domain.RoleSystem, Content: domain.DefaultSystemPrompt},
@@ -196,6 +203,10 @@ func (m *Model) refreshViewport() {
 			prefix = errorStyle.Render(errorMark) + " "
 			wrapped := errorStyle.Render(lipgloss.Wrap(msg.content, contentWidth, " "))
 			sb.WriteString(prefixLines(wrapped, prefix, "  "))
+		} else if msg.role == roleInfo {
+			prefix = dimStyle.Render(dot) + " "
+			wrapped := dimStyle.Render(lipgloss.Wrap(msg.content, contentWidth, " "))
+			sb.WriteString(prefixLines(wrapped, prefix, "  "))
 		} else {
 			if msg.role == roleUser {
 				prefix = userDotStyle.Render(dot) + " "
@@ -223,6 +234,15 @@ func (m *Model) refreshViewport() {
 			sb.WriteString(" ")
 			sb.WriteString(m.spinner.View())
 		}
+	} else if m.compacting {
+		if len(m.messages) > 0 {
+			sb.WriteString("\n\n")
+		}
+		prefix := dimStyle.Render(dot) + " "
+		sb.WriteString(prefix)
+		sb.WriteString(dimStyle.Render("Compacting conversation..."))
+		sb.WriteString(" ")
+		sb.WriteString(m.spinner.View())
 	}
 
 	m.viewport.SetContent(sb.String())
@@ -296,10 +316,87 @@ func waitForEvent(ch <-chan domain.StreamEvent) tea.Cmd {
 	}
 }
 
+func (m *Model) startCompact() tea.Cmd {
+	active := 0
+	for _, msg := range m.conversation.Messages {
+		if msg.CompactedAt == nil && (msg.Role == domain.RoleUser || msg.Role == domain.RoleAssistant) {
+			active++
+		}
+	}
+	if active == 0 {
+		m.addError("nothing to compact")
+		return nil
+	}
+	m.compacting = true
+	m.compactCancelled = false
+	m.compactBuf.Reset()
+	m.compactUsage = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+
+	msgs := make([]domain.Message, 0, len(m.conversation.Messages)+1)
+	msgs = append(msgs, m.conversation.Messages...)
+	msgs = append(msgs, domain.Message{Role: domain.RoleUser, Content: domain.CompactPrompt})
+	compactConv := domain.Conversation{Messages: msgs}
+
+	m.recalcLayout()
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return tea.Batch(
+		startStreamCmd(ctx, m.client, m.currentModel, compactConv),
+		m.spinner.Tick,
+	)
+}
+
+func (m *Model) resetCompactState() {
+	m.compactBuf.Reset()
+	m.compactUsage = nil
+	m.compacting = false
+	m.compactCancelled = false
+	m.streamCh = nil
+	m.cancel = nil
+}
+
 func (m *Model) addError(text string) {
 	m.messages = append(m.messages, message{role: roleError, content: text})
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+}
+
+func (m *Model) finalizeCompact() {
+	defer m.resetCompactState()
+
+	if m.compactCancelled {
+		m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
+		return
+	}
+	if m.compactBuf.Len() == 0 {
+		m.messages = append(m.messages, message{role: roleError, content: "compact produced no summary"})
+		return
+	}
+
+	now := time.Now().UTC()
+	for i, msg := range m.conversation.Messages {
+		if msg.Role == domain.RoleSystem || msg.CompactedAt != nil {
+			continue
+		}
+		t := now
+		m.conversation.Messages[i].CompactedAt = &t
+	}
+	summary := domain.Message{
+		Role: domain.RoleAssistant,
+		Content: "[Conversation summary — condensed history of earlier turns]\n" +
+			m.compactBuf.String() +
+			"\n[End of summary]",
+		Model: m.currentModel,
+	}
+	if m.compactUsage != nil {
+		summary.PromptTokens = m.compactUsage.PromptTokens
+		summary.CompletionTokens = m.compactUsage.CompletionTokens
+		summary.Cost = m.compactUsage.Cost
+	}
+	m.conversation.Messages = append(m.conversation.Messages, summary)
+	m.messages = append(m.messages, message{role: roleInfo, content: "Conversation compacted."})
 }
 
 func (m *Model) finalizeStream() {
@@ -352,8 +449,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streaming = false
 			if m.cancel != nil {
 				m.cancel()
-				m.cancel = nil
 			}
+			m.resetCompactState()
 			m.addError(msg.err.Error())
 			return m, nil
 		}
@@ -367,7 +464,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
-			m.finalizeStream()
+			if m.compacting {
+				m.finalizeCompact()
+			} else {
+				m.finalizeStream()
+			}
 			m.refreshViewport()
 			if wasAtBottom {
 				m.viewport.GotoBottom()
@@ -379,13 +480,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
-			m.finalizeStream()
+			if m.compacting {
+				m.resetCompactState()
+			} else {
+				m.finalizeStream()
+			}
 			m.messages = append(m.messages, message{role: roleError, content: msg.ev.Err.Error()})
 			m.refreshViewport()
 			if wasAtBottom {
 				m.viewport.GotoBottom()
 			}
 			return m, nil
+		}
+
+		if m.compacting {
+			if msg.ev.Usage != nil {
+				m.compactUsage = msg.ev.Usage
+			}
+			if msg.ev.Delta != "" {
+				m.compactBuf.WriteString(msg.ev.Delta)
+			}
+			return m, waitForEvent(m.streamCh)
 		}
 
 		if msg.ev.Usage != nil {
@@ -406,7 +521,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.picker, cmd = m.picker.Update(msg)
 			return m, cmd
 		}
-		if m.streaming {
+		if m.streaming || m.compacting {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			m.refreshViewport()
@@ -445,10 +560,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// events are drained through the normal path.
 				return m, nil
 			}
+			if m.compacting {
+				m.compactCancelled = true
+				if m.cancel != nil {
+					m.cancel()
+				}
+				return m, nil
+			}
 			return m, tea.Quit
 
 		case "enter":
-			if m.streaming {
+			if m.streaming || m.compacting {
 				return m, nil
 			}
 			content := strings.TrimSpace(m.textarea.Value())
@@ -463,6 +585,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "cost":
 					m.cost = newCostPanel(m.width, m.height, m.conversation)
 					m.costActive = true
+				case "compact":
+					return m, m.startCompact()
 				default:
 					m.addError("unknown command: /" + cmd.Name)
 				}
