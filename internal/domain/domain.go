@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type Role string
 
 const (
@@ -10,6 +12,11 @@ const (
 
 const DefaultSystemPrompt = "You are a helpful assistant."
 
+const CompactPrompt = "You are summarizing this conversation so it can be continued with less context. " +
+	"Preserve: the user's underlying goal, key facts and decisions, any code or concrete details referenced, " +
+	"and any open questions or pending actions. Drop: pleasantries, tangents, and verbose explanations that " +
+	"have already been acknowledged. Respond with the summary only — no preamble, no meta-commentary."
+
 type Message struct {
 	Role             Role
 	Content          string
@@ -17,6 +24,7 @@ type Message struct {
 	PromptTokens     int
 	CompletionTokens int
 	Cost             float64
+	CompactedAt      *time.Time
 }
 
 type Conversation struct {
