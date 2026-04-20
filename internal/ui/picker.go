@@ -11,6 +11,8 @@ import (
 	"github.com/stefannovasky/llm-chat/internal/models"
 )
 
+const modelSearchHint = "press / to search"
+
 type modelItem struct {
 	model     models.Model
 	isCurrent bool
@@ -69,7 +71,8 @@ func newPicker(width, height int, currentModel string) pickerModel {
 	delegate.Styles.FilterMatch = zero.Foreground(lipgloss.Color("11"))
 
 	l := list.New(nil, delegate, width, height)
-	l.Title = "Select model · current: " + currentModel
+	l.Title = "Select model · current: " + currentModel + " · " + modelSearchHint
+	l.KeyMap.Filter.SetHelp("/", "search")
 	l.SetShowStatusBar(true)
 	l.SetShowPagination(false)
 	l.SetFilteringEnabled(true)
