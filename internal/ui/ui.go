@@ -19,6 +19,7 @@ import (
 	"github.com/stefannovasky/llm-chat/internal/domain"
 	"github.com/stefannovasky/llm-chat/internal/llm"
 	"github.com/stefannovasky/llm-chat/internal/models"
+	"github.com/stefannovasky/llm-chat/internal/sessions"
 )
 
 type modelsLoadedMsg struct {
@@ -93,6 +94,22 @@ type Model struct {
 	initCmd          tea.Cmd
 	mdRenderer       *glamour.TermRenderer
 	mdRendererWidth  int
+	sessionID        string
+	sessionCreatedAt time.Time
+}
+
+func (m *Model) autosave() {
+	if m.sessionID == "" {
+		m.sessionID = sessions.NewID()
+		m.sessionCreatedAt = time.Now().UTC()
+	}
+	s := &sessions.Session{
+		ID:        m.sessionID,
+		Title:     sessions.DeriveTitle(m.conversation.Messages),
+		CreatedAt: m.sessionCreatedAt,
+		Messages:  m.conversation.Messages,
+	}
+	_ = sessions.Save(s)
 }
 
 func New(cfg *config.Config, client *llm.Client, currentModel string, state models.State) Model {
@@ -401,6 +418,7 @@ func (m *Model) finalizeCompact() {
 		summary.Cost = m.compactUsage.Cost
 	}
 	m.conversation.Messages = append(m.conversation.Messages, summary)
+	m.autosave()
 	m.messages = append(m.messages, message{role: roleInfo, content: "Conversation compacted."})
 }
 
@@ -415,6 +433,7 @@ func (m *Model) finalizeStream() {
 			dm.Cost = m.streamUsage.Cost
 		}
 		m.conversation.Messages = append(m.conversation.Messages, dm)
+		m.autosave()
 	}
 	m.streamBuf.Reset()
 	m.streamUsage = nil

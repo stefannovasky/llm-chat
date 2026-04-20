@@ -135,7 +135,8 @@ llm-chat/
 
 ### Phase 7 — Conversation persistence + resume
 
-- [ ] 7.1 Save conversations to disk (format TBD)
+- [x] 7.1 Save conversations to disk
+  - JSON per session at `$XDG_DATA_HOME/llm-chat/sessions/<id>.json` (default `~/.local/share/llm-chat/sessions/`). `<id>` = UTC timestamp + 4-byte hex suffix for stable sort and collision avoidance. Schema: `{version, id, title, created_at, updated_at, messages}` — `messages` is `[]domain.Message` serialized as-is (JSON tags added to `domain.Message`; `CompactedAt` survives round-trip). Title auto-derived from first user message (trimmed to 60 runes). Autosave via atomic write (tmp + rename) after each completed assistant stream and after each successful `/compact`. Partial/cancelled streams do not save; errors are best-effort (ignored) like `models.SaveState`. Compactions are fully preserved — `CompactedAt` markers round-trip, the synthetic summary message is just another `domain.Message`. Model changes round-trip via per-message `Model`. New `internal/sessions` package owns `Dir/NewID/DeriveTitle/Save/Load/List` and exposes a lightweight `Summary` (for the 7.2 picker).
 - [ ] 7.2 `/resume` — list and re-enter previous conversations (cost is rehydrated from `Message.Cost` set in 6.3; no refetch via `/api/v1/generation`)
 
 ---

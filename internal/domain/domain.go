@@ -18,13 +18,13 @@ const CompactPrompt = "You are summarizing this conversation so it can be contin
 	"have already been acknowledged. Respond with the summary only — no preamble, no meta-commentary."
 
 type Message struct {
-	Role             Role
-	Content          string
-	Model            string
-	PromptTokens     int
-	CompletionTokens int
-	Cost             float64
-	CompactedAt      *time.Time
+	Role             Role       `json:"role"`
+	Content          string     `json:"content"`
+	Model            string     `json:"model,omitempty"`
+	PromptTokens     int        `json:"prompt_tokens,omitempty"`
+	CompletionTokens int        `json:"completion_tokens,omitempty"`
+	Cost             float64    `json:"cost,omitempty"`
+	CompactedAt      *time.Time `json:"compacted_at,omitempty"`
 }
 
 type Conversation struct {
