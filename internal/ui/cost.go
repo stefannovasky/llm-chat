@@ -31,8 +31,8 @@ func newCostPanel(width, height int, conv domain.Conversation) costPanel {
 }
 
 func buildCostContent(conv domain.Conversation) string {
-	stats := map[string]*modelStats{}
-	order := []string{}
+	stats := make(map[string]*modelStats, 4)
+	order := make([]string, 0, 4)
 
 	for _, m := range conv.Messages {
 		if m.Role != domain.RoleAssistant || m.Model == "" {
@@ -52,7 +52,6 @@ func buildCostContent(conv domain.Conversation) string {
 		return dimStyle.Render("no usage yet")
 	}
 
-	// Find max model name length for alignment.
 	maxLen := 0
 	for _, id := range order {
 		if len(id) > maxLen {
@@ -60,9 +59,9 @@ func buildCostContent(conv domain.Conversation) string {
 		}
 	}
 
-	var sb strings.Builder
 	var totalCost float64
 	var totalPrompt, totalCompletion int
+	lines := make([]string, 0, len(order)+2)
 
 	for _, id := range order {
 		s := stats[id]
@@ -70,7 +69,7 @@ func buildCostContent(conv domain.Conversation) string {
 		totalPrompt += s.promptTokens
 		totalCompletion += s.completionTokens
 		padding := strings.Repeat(" ", maxLen-len(id))
-		sb.WriteString(fmt.Sprintf("%s%s  $%.6f  %s in + %s out\n",
+		lines = append(lines, fmt.Sprintf("%s%s  $%.6f  %s in + %s out",
 			id, padding,
 			s.cost,
 			formatTokens(s.promptTokens),
@@ -79,22 +78,19 @@ func buildCostContent(conv domain.Conversation) string {
 	}
 
 	if len(order) > 1 {
-		sep := strings.Repeat("─", maxLen+32)
-		sb.WriteString(sep + "\n")
 		padding := strings.Repeat(" ", maxLen-5) // len("total") = 5
-		sb.WriteString(fmt.Sprintf("total%s  $%.6f  %s in + %s out",
-			padding,
-			totalCost,
-			formatTokens(totalPrompt),
-			formatTokens(totalCompletion),
-		))
-	} else {
-		// Trim trailing newline when there's only one row.
-		result := strings.TrimRight(sb.String(), "\n")
-		return dimStyle.Render(result)
+		lines = append(lines,
+			strings.Repeat("─", maxLen+32),
+			fmt.Sprintf("total%s  $%.6f  %s in + %s out",
+				padding,
+				totalCost,
+				formatTokens(totalPrompt),
+				formatTokens(totalCompletion),
+			),
+		)
 	}
 
-	return dimStyle.Render(sb.String())
+	return dimStyle.Render(strings.Join(lines, "\n"))
 }
 
 func formatTokens(n int) string {
