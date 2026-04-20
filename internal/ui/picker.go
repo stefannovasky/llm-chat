@@ -7,13 +7,12 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"github.com/stefannovasky/llm-chat/internal/models"
 )
 
 const modelSearchHint = "press / to search"
 
 type modelItem struct {
-	model     models.Model
+	model     llmInfo
 	isCurrent bool
 }
 
@@ -76,8 +75,8 @@ func (p *pickerModel) setSize(w, h int) {
 	p.list.SetSize(w, h)
 }
 
-func (p *pickerModel) setModels(all []models.Model, recent []string) {
-	ordered := models.Order(all, recent)
+func (p *pickerModel) setModels(all []llmInfo, recent []string) {
+	ordered := orderModels(all, recent)
 	items := make([]list.Item, len(ordered))
 	for i, m := range ordered {
 		items[i] = modelItem{model: m, isCurrent: m.ID == p.currentModel}

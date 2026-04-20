@@ -14,16 +14,21 @@ import (
 	glamour "charm.land/glamour/v2"
 	glamourstyles "charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
-	"github.com/stefannovasky/llm-chat/internal/commands"
 	"github.com/stefannovasky/llm-chat/internal/config"
-	"github.com/stefannovasky/llm-chat/internal/domain"
 	"github.com/stefannovasky/llm-chat/internal/llm"
-	"github.com/stefannovasky/llm-chat/internal/models"
 	"github.com/stefannovasky/llm-chat/internal/sessions"
 )
 
+const (
+	defaultSystemPrompt = "You are a helpful assistant."
+	compactPrompt       = "You are summarizing this conversation so it can be continued with less context. " +
+		"Preserve: the user's underlying goal, key facts and decisions, any code or concrete details referenced, " +
+		"and any open questions or pending actions. Drop: pleasantries, tangents, and verbose explanations that " +
+		"have already been acknowledged. Respond with the summary only — no preamble, no meta-commentary."
+)
+
 type modelsLoadedMsg struct {
-	all []models.Model
+	all []llmInfo
 	err error
 }
 
@@ -55,12 +60,12 @@ type message struct {
 }
 
 type streamStartMsg struct {
-	ch  <-chan domain.StreamEvent
+	ch  <-chan llm.StreamEvent
 	err error
 }
 
 type streamEventMsg struct {
-	ev domain.StreamEvent
+	ev llm.StreamEvent
 	ok bool
 }
 
@@ -68,8 +73,8 @@ type Model struct {
 	cfg              *config.Config
 	client           *llm.Client
 	currentModel     string
-	state            models.State
-	modelsCache      []models.Model
+	state            State
+	modelsCache      []llmInfo
 	picker           pickerModel
 	pickerActive     bool
 	sessionsPicker   sessionsPickerModel
@@ -83,15 +88,15 @@ type Model struct {
 	textarea         textarea.Model
 	spinner          spinner.Model
 	messages         []message
-	conversation     domain.Conversation
+	conversation     sessions.Conversation
 	streaming        bool
 	streamBuf        *strings.Builder
-	streamCh         <-chan domain.StreamEvent
-	streamUsage      *domain.Usage
+	streamCh         <-chan llm.StreamEvent
+	streamUsage      *llm.Usage
 	cancel           context.CancelFunc
 	compacting       bool
 	compactBuf       *strings.Builder
-	compactUsage     *domain.Usage
+	compactUsage     *llm.Usage
 	compactCancelled bool
 	initCmd          tea.Cmd
 	mdRenderer       *glamour.TermRenderer
@@ -114,7 +119,7 @@ func (m *Model) autosave() {
 	_ = sessions.Save(s)
 }
 
-func New(cfg *config.Config, client *llm.Client, currentModel string, state models.State) Model {
+func New(cfg *config.Config, client *llm.Client, currentModel string, state State) Model {
 	ta := textarea.New()
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
@@ -158,9 +163,9 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state mode
 		initCmd:      focusCmd,
 		streamBuf:    &strings.Builder{},
 		compactBuf:   &strings.Builder{},
-		conversation: domain.Conversation{
-			Messages: []domain.Message{
-				{Role: domain.RoleSystem, Content: domain.DefaultSystemPrompt},
+		conversation: sessions.Conversation{
+			Messages: []sessions.Message{
+				{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
 			},
 		},
 	}
@@ -291,7 +296,7 @@ func prefixLines(s, first, rest string) string {
 	return sb.String()
 }
 
-func startStreamCmd(ctx context.Context, client *llm.Client, model string, conv domain.Conversation) tea.Cmd {
+func startStreamCmd(ctx context.Context, client *llm.Client, model string, conv sessions.Conversation) tea.Cmd {
 	return func() tea.Msg {
 		ch, err := client.Stream(ctx, model, conv)
 		if err != nil {
@@ -303,7 +308,7 @@ func startStreamCmd(ctx context.Context, client *llm.Client, model string, conv 
 
 func fetchModelsCmd() tea.Cmd {
 	return func() tea.Msg {
-		all, err := models.Fetch(context.Background())
+		all, err := fetchModels(context.Background())
 		return modelsLoadedMsg{all: all, err: err}
 	}
 }
@@ -329,26 +334,26 @@ func (m *Model) openSessionsPicker() {
 }
 
 func (m *Model) applySession(s *sessions.Session) {
-	if len(s.Messages) == 0 || s.Messages[0].Role != domain.RoleSystem {
+	if len(s.Messages) == 0 || s.Messages[0].Role != sessions.RoleSystem {
 		m.addError("session file is corrupt: missing system prompt")
 		return
 	}
 	m.sessionID = s.ID
 	m.sessionCreatedAt = s.CreatedAt
-	m.conversation.Messages = append([]domain.Message(nil), s.Messages...)
+	m.conversation.Messages = append([]sessions.Message(nil), s.Messages...)
 
 	m.messages = m.messages[:0]
 	for _, dm := range s.Messages {
 		switch dm.Role {
-		case domain.RoleUser:
+		case sessions.RoleUser:
 			m.messages = append(m.messages, message{role: roleUser, content: dm.Content})
-		case domain.RoleAssistant:
+		case sessions.RoleAssistant:
 			m.messages = append(m.messages, message{role: roleAssistant, content: dm.Content})
 		}
 	}
 
 	for i := len(s.Messages) - 1; i >= 0; i-- {
-		if s.Messages[i].Role == domain.RoleAssistant && s.Messages[i].Model != "" {
+		if s.Messages[i].Role == sessions.RoleAssistant && s.Messages[i].Model != "" {
 			m.selectModel(s.Messages[i].Model)
 			break
 		}
@@ -360,25 +365,25 @@ func (m *Model) applySession(s *sessions.Session) {
 
 func (m *Model) selectModel(id string) {
 	m.currentModel = id
-	m.state.Touch(id)
-	_ = models.SaveState(m.state)
+	m.state.touch(id)
+	_ = saveState(m.state)
 }
 
-func waitForEvent(ch <-chan domain.StreamEvent) tea.Cmd {
+func waitForEvent(ch <-chan llm.StreamEvent) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		return streamEventMsg{ev: ev, ok: ok}
 	}
 }
 
-func isCompactable(msg domain.Message) bool {
-	return msg.Role != domain.RoleSystem && msg.CompactedAt == nil
+func isCompactable(msg sessions.Message) bool {
+	return msg.Role != sessions.RoleSystem && msg.CompactedAt == nil
 }
 
 func (m *Model) startCompact() tea.Cmd {
 	hasNewUser := false
 	for _, msg := range m.conversation.Messages {
-		if isCompactable(msg) && msg.Role == domain.RoleUser {
+		if isCompactable(msg) && msg.Role == sessions.RoleUser {
 			hasNewUser = true
 			break
 		}
@@ -394,10 +399,10 @@ func (m *Model) startCompact() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	msgs := make([]domain.Message, 0, len(m.conversation.Messages)+1)
+	msgs := make([]sessions.Message, 0, len(m.conversation.Messages)+1)
 	msgs = append(msgs, m.conversation.Messages...)
-	msgs = append(msgs, domain.Message{Role: domain.RoleUser, Content: domain.CompactPrompt})
-	compactConv := domain.Conversation{Messages: msgs}
+	msgs = append(msgs, sessions.Message{Role: sessions.RoleUser, Content: compactPrompt})
+	compactConv := sessions.Conversation{Messages: msgs}
 
 	m.recalcLayout()
 	m.refreshViewport()
@@ -443,8 +448,8 @@ func (m *Model) finalizeCompact() {
 		t := now
 		m.conversation.Messages[i].CompactedAt = &t
 	}
-	summary := domain.Message{
-		Role: domain.RoleAssistant,
+	summary := sessions.Message{
+		Role: sessions.RoleAssistant,
 		Content: "[Conversation summary — condensed history of earlier turns]\n" +
 			m.compactBuf.String() +
 			"\n[End of summary]",
@@ -464,7 +469,7 @@ func (m *Model) finalizeStream() {
 	if m.streamBuf.Len() > 0 {
 		content := m.streamBuf.String()
 		m.messages = append(m.messages, message{role: roleAssistant, content: content})
-		dm := domain.Message{Role: domain.RoleAssistant, Content: content, Model: m.currentModel}
+		dm := sessions.Message{Role: sessions.RoleAssistant, Content: content, Model: m.currentModel}
 		if m.streamUsage != nil {
 			dm.PromptTokens = m.streamUsage.PromptTokens
 			dm.CompletionTokens = m.streamUsage.CompletionTokens
@@ -670,7 +675,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if content == "" {
 				return m, nil
 			}
-			if cmd, ok := commands.Parse(content); ok {
+			if cmd, ok := parseCommand(content); ok {
 				m.textarea.Reset()
 				switch cmd.Name {
 				case "model":
@@ -687,7 +692,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.openSessionsPicker()
 					return m, nil
 				case "help":
-					m.messages = append(m.messages, message{role: roleInfo, content: commands.Help()})
+					m.messages = append(m.messages, message{role: roleInfo, content: helpText()})
 					m.refreshViewport()
 					m.viewport.GotoBottom()
 				default:
@@ -696,8 +701,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.messages = append(m.messages, message{role: roleUser, content: content})
-			m.conversation.Messages = append(m.conversation.Messages, domain.Message{
-				Role:    domain.RoleUser,
+			m.conversation.Messages = append(m.conversation.Messages, sessions.Message{
+				Role:    sessions.RoleUser,
 				Content: content,
 			})
 			m.textarea.Reset()

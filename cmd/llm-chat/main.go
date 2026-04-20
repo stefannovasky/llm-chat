@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stefannovasky/llm-chat/internal/config"
 	"github.com/stefannovasky/llm-chat/internal/llm"
-	"github.com/stefannovasky/llm-chat/internal/models"
 	"github.com/stefannovasky/llm-chat/internal/ui"
 )
 
@@ -24,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	state := models.LoadState()
+	state := ui.LoadState()
 	currentModel := cmp.Or(cfg.DefaultModel, state.Current, config.HardcodedDefaultModel)
 
 	client := llm.NewClient(cfg.APIKey)
