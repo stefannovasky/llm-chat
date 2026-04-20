@@ -316,15 +316,20 @@ func waitForEvent(ch <-chan domain.StreamEvent) tea.Cmd {
 	}
 }
 
+func isCompactable(msg domain.Message) bool {
+	return msg.Role != domain.RoleSystem && msg.CompactedAt == nil
+}
+
 func (m *Model) startCompact() tea.Cmd {
-	active := 0
+	hasNewUser := false
 	for _, msg := range m.conversation.Messages {
-		if msg.CompactedAt == nil && (msg.Role == domain.RoleUser || msg.Role == domain.RoleAssistant) {
-			active++
+		if isCompactable(msg) && msg.Role == domain.RoleUser {
+			hasNewUser = true
+			break
 		}
 	}
-	if active == 0 {
-		m.addError("nothing to compact")
+	if !hasNewUser {
+		m.addError("nothing new to compact")
 		return nil
 	}
 	m.compacting = true
@@ -377,7 +382,7 @@ func (m *Model) finalizeCompact() {
 
 	now := time.Now().UTC()
 	for i, msg := range m.conversation.Messages {
-		if msg.Role == domain.RoleSystem || msg.CompactedAt != nil {
+		if !isCompactable(msg) {
 			continue
 		}
 		t := now
@@ -480,12 +485,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
+			cancelled := m.compacting && m.compactCancelled
 			if m.compacting {
 				m.resetCompactState()
 			} else {
 				m.finalizeStream()
 			}
-			m.messages = append(m.messages, message{role: roleError, content: msg.ev.Err.Error()})
+			if cancelled {
+				m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
+			} else {
+				m.messages = append(m.messages, message{role: roleError, content: msg.ev.Err.Error()})
+			}
 			m.refreshViewport()
 			if wasAtBottom {
 				m.viewport.GotoBottom()
