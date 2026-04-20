@@ -5,7 +5,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/stefannovasky/llm-chat/internal/sessions"
 )
 
@@ -44,31 +43,13 @@ type sessionsPickerModel struct {
 }
 
 func newSessionsPicker(width, height int, summaries []sessions.Summary, loadErr error) sessionsPickerModel {
-	delegate := list.NewDefaultDelegate()
-	delegate.SetSpacing(1)
-	zero := lipgloss.NewStyle()
-	delegate.Styles.NormalTitle = zero.Foreground(lipgloss.Color("252"))
-	delegate.Styles.NormalDesc = zero.Foreground(lipgloss.Color("240"))
-	delegate.Styles.SelectedTitle = zero.Foreground(lipgloss.Color("12"))
-	delegate.Styles.SelectedDesc = zero.Foreground(lipgloss.Color("12"))
-	delegate.Styles.DimmedTitle = zero.Foreground(lipgloss.Color("240"))
-	delegate.Styles.DimmedDesc = zero.Foreground(lipgloss.Color("238"))
-	delegate.Styles.FilterMatch = zero.Foreground(lipgloss.Color("11"))
-
 	items := make([]list.Item, len(summaries))
 	for i, s := range summaries {
 		items[i] = sessionItem{sum: s}
 	}
 
-	l := list.New(items, delegate, width, height)
-	l.Title = "Resume session · " + sessionSearchHint
-	l.KeyMap.Filter.SetHelp("/", "search")
-	l.SetShowStatusBar(true)
-	l.SetShowPagination(false)
-	l.SetFilteringEnabled(true)
-	l.SetShowHelp(true)
-	l.DisableQuitKeybindings()
-	l.Styles.Title = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	l := list.New(items, newListDelegate(), width, height)
+	configureListChrome(&l, "Resume session · "+sessionSearchHint)
 
 	p := sessionsPickerModel{list: l, width: width, height: height}
 	switch {
@@ -116,8 +97,7 @@ func (p sessionsPickerModel) Update(msg tea.Msg) (sessionsPickerModel, tea.Cmd) 
 
 func (p sessionsPickerModel) View() string {
 	if p.err != "" {
-		return lipgloss.Place(p.width, p.height,
-			lipgloss.Center, lipgloss.Center,
+		return centerMessage(p.width, p.height,
 			dimStyle.Render(p.err)+"\n"+dimStyle.Render("press esc to close"))
 	}
 	return p.list.View()

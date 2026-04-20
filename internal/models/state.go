@@ -3,7 +3,8 @@ package models
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
+
+	"github.com/stefannovasky/llm-chat/internal/fsutil"
 )
 
 const recentCap = 10
@@ -14,14 +15,7 @@ type State struct {
 }
 
 func StatePath() string {
-	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return filepath.Join(x, "llm-chat", "recent_models.json")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".local", "state", "llm-chat", "recent_models.json")
+	return fsutil.XDGPath("XDG_STATE_HOME", ".local/state", "llm-chat", "recent_models.json")
 }
 
 // LoadState reads the recent models file. Missing or corrupted files return an
@@ -49,18 +43,7 @@ func SaveState(s State) error {
 	if path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteJSONAtomic(path, s, false)
 }
 
 func (s *State) Touch(id string) {

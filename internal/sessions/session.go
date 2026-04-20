@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stefannovasky/llm-chat/internal/domain"
+	"github.com/stefannovasky/llm-chat/internal/fsutil"
 )
 
 const (
@@ -37,20 +38,18 @@ type Summary struct {
 }
 
 func Dir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "llm-chat", "sessions")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".local", "share", "llm-chat", "sessions")
+	return fsutil.XDGPath("XDG_DATA_HOME", ".local/share", "llm-chat", "sessions")
 }
 
 func NewID() string {
+	now := time.Now().UTC()
 	var b [4]byte
-	_, _ = rand.Read(b[:])
-	return time.Now().UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand virtually never fails, but fall back to a time-based
+		// suffix so IDs remain unique within a second.
+		return now.Format("20060102T150405.000000000Z")
+	}
+	return now.Format("20060102T150405Z") + "-" + hex.EncodeToString(b[:])
 }
 
 // DeriveTitle returns a single-line title derived from the first user message.
@@ -80,8 +79,8 @@ func filePath(id string) (string, error) {
 	return filepath.Join(d, id+".json"), nil
 }
 
-// Save writes the session atomically, stamping UpdatedAt. CreatedAt is preserved
-// across saves (caller sets it once on the initial save).
+// Save marshals s to disk atomically and stamps UpdatedAt. Caller owns
+// CreatedAt — Save does not read the existing file.
 func Save(s *Session) error {
 	if s.Version == 0 {
 		s.Version = currentVersion
@@ -91,18 +90,7 @@ func Save(s *Session) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteJSONAtomic(path, s, true)
 }
 
 func Load(id string) (*Session, error) {

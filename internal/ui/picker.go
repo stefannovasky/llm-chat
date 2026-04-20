@@ -7,7 +7,6 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/stefannovasky/llm-chat/internal/models"
 )
 
@@ -58,29 +57,8 @@ func newPicker(width, height int, currentModel string) pickerModel {
 		spinner.WithStyle(assistDotStyle),
 	)
 
-	delegate := list.NewDefaultDelegate()
-	delegate.SetSpacing(1)
-	zero := lipgloss.NewStyle()
-	delegate.Styles.NormalTitle = zero.Foreground(lipgloss.Color("252"))
-	delegate.Styles.NormalDesc = zero.Foreground(lipgloss.Color("240"))
-	delegate.Styles.SelectedTitle = zero.Foreground(lipgloss.Color("12"))
-	delegate.Styles.SelectedDesc = zero.Foreground(lipgloss.Color("12"))
-	delegate.Styles.DimmedTitle = zero.Foreground(lipgloss.Color("240"))
-	delegate.Styles.DimmedDesc = zero.Foreground(lipgloss.Color("238"))
-	// Default underlines matched filter chars; we want a plain highlight instead.
-	delegate.Styles.FilterMatch = zero.Foreground(lipgloss.Color("11"))
-
-	l := list.New(nil, delegate, width, height)
-	l.Title = "Select model · current: " + currentModel + " · " + modelSearchHint
-	l.KeyMap.Filter.SetHelp("/", "search")
-	l.SetShowStatusBar(true)
-	l.SetShowPagination(false)
-	l.SetFilteringEnabled(true)
-	l.SetShowHelp(true)
-	// Disable q to quit — only esc / ctrl+c close the picker.
-	l.DisableQuitKeybindings()
-	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	l.Styles.Title = titleStyle
+	l := list.New(nil, newListDelegate(), width, height)
+	configureListChrome(&l, "Select model · current: "+currentModel+" · "+modelSearchHint)
 
 	return pickerModel{
 		list:         l,
@@ -155,12 +133,9 @@ func (p pickerModel) Update(msg tea.Msg) (pickerModel, tea.Cmd) {
 func (p pickerModel) View() string {
 	switch {
 	case p.loading:
-		return lipgloss.Place(p.width, p.height,
-			lipgloss.Center, lipgloss.Center,
-			p.spinner.View()+" Loading models...")
+		return centerMessage(p.width, p.height, p.spinner.View()+" Loading models...")
 	case p.err != "":
-		return lipgloss.Place(p.width, p.height,
-			lipgloss.Center, lipgloss.Center,
+		return centerMessage(p.width, p.height,
 			errorStyle.Render(p.err)+"\n"+dimStyle.Render("press esc to close"))
 	default:
 		return p.list.View()

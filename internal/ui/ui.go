@@ -329,9 +329,13 @@ func (m *Model) openSessionsPicker() {
 }
 
 func (m *Model) applySession(s *sessions.Session) {
+	if len(s.Messages) == 0 || s.Messages[0].Role != domain.RoleSystem {
+		m.addError("session file is corrupt: missing system prompt")
+		return
+	}
 	m.sessionID = s.ID
 	m.sessionCreatedAt = s.CreatedAt
-	m.conversation.Messages = s.Messages
+	m.conversation.Messages = append([]domain.Message(nil), s.Messages...)
 
 	m.messages = m.messages[:0]
 	for _, dm := range s.Messages {
