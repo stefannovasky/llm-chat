@@ -72,6 +72,8 @@ type Model struct {
 	modelsCache      []models.Model
 	picker           pickerModel
 	pickerActive     bool
+	sessionsPicker   sessionsPickerModel
+	sessionsActive   bool
 	cost             costPanel
 	costActive       bool
 	width            int
@@ -320,6 +322,38 @@ func (m *Model) openPicker() tea.Cmd {
 	return tea.Batch(fetchModelsCmd(), p.spinner.Tick)
 }
 
+func (m *Model) openSessionsPicker() {
+	summaries, err := sessions.List()
+	m.sessionsPicker = newSessionsPicker(m.width, m.height, summaries, err)
+	m.sessionsActive = true
+}
+
+func (m *Model) applySession(s *sessions.Session) {
+	m.sessionID = s.ID
+	m.sessionCreatedAt = s.CreatedAt
+	m.conversation.Messages = s.Messages
+
+	m.messages = m.messages[:0]
+	for _, dm := range s.Messages {
+		switch dm.Role {
+		case domain.RoleUser:
+			m.messages = append(m.messages, message{role: roleUser, content: dm.Content})
+		case domain.RoleAssistant:
+			m.messages = append(m.messages, message{role: roleAssistant, content: dm.Content})
+		}
+	}
+
+	for i := len(s.Messages) - 1; i >= 0; i-- {
+		if s.Messages[i].Role == domain.RoleAssistant && s.Messages[i].Model != "" {
+			m.selectModel(s.Messages[i].Model)
+			break
+		}
+	}
+
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+}
+
 func (m *Model) selectModel(id string) {
 	m.currentModel = id
 	m.state.Touch(id)
@@ -452,6 +486,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		if m.pickerActive {
 			m.picker.setSize(m.width, m.height)
+		}
+		if m.sessionsActive {
+			m.sessionsPicker.setSize(m.width, m.height)
 		}
 		return m, nil
 
@@ -586,6 +623,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
+		if m.sessionsActive {
+			var cmd tea.Cmd
+			m.sessionsPicker, cmd = m.sessionsPicker.Update(msg)
+			if m.sessionsPicker.done {
+				m.sessionsActive = false
+				if id := m.sessionsPicker.selected; id != "" {
+					if s, err := sessions.Load(id); err != nil {
+						m.addError("failed to load session: " + err.Error())
+					} else {
+						m.applySession(s)
+					}
+				}
+				return m, nil
+			}
+			return m, cmd
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			if m.streaming {
@@ -623,6 +676,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.costActive = true
 				case "compact":
 					return m, m.startCompact()
+				case "resume":
+					if m.streaming || m.compacting {
+						return m, nil
+					}
+					m.openSessionsPicker()
+					return m, nil
 				case "help":
 					m.messages = append(m.messages, message{role: roleInfo, content: commands.Help()})
 					m.refreshViewport()
@@ -700,6 +759,11 @@ func (m Model) View() tea.View {
 
 	if m.pickerActive {
 		v.SetContent(m.picker.View())
+		return v
+	}
+
+	if m.sessionsActive {
+		v.SetContent(m.sessionsPicker.View())
 		return v
 	}
 

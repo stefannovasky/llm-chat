@@ -13,6 +13,7 @@ var All = []Info{
 	{"model", "switch active model"},
 	{"cost", "show session cost and token usage"},
 	{"compact", "compact conversation history"},
+	{"resume", "list and reopen a previous conversation"},
 	{"help", "list available commands"},
 }
 
