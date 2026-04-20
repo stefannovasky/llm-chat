@@ -604,6 +604,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.costActive = true
 				case "compact":
 					return m, m.startCompact()
+				case "help":
+					m.messages = append(m.messages, message{role: roleInfo, content: commands.Help()})
+					m.refreshViewport()
+					m.viewport.GotoBottom()
 				default:
 					m.addError("unknown command: /" + cmd.Name)
 				}
