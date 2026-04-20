@@ -69,6 +69,8 @@ type Model struct {
 	modelsCache     []models.Model
 	picker          pickerModel
 	pickerActive    bool
+	cost            costPanel
+	costActive      bool
 	width           int
 	height          int
 	separator       string
@@ -80,6 +82,7 @@ type Model struct {
 	streaming       bool
 	streamBuf       *strings.Builder
 	streamCh        <-chan domain.StreamEvent
+	streamUsage     *domain.Usage
 	cancel          context.CancelFunc
 	initCmd         tea.Cmd
 	mdRenderer      *glamour.TermRenderer
@@ -303,12 +306,16 @@ func (m *Model) finalizeStream() {
 	if m.streamBuf.Len() > 0 {
 		content := m.streamBuf.String()
 		m.messages = append(m.messages, message{role: roleAssistant, content: content})
-		m.conversation.Messages = append(m.conversation.Messages, domain.Message{
-			Role:    domain.RoleAssistant,
-			Content: content,
-		})
+		dm := domain.Message{Role: domain.RoleAssistant, Content: content, Model: m.currentModel}
+		if m.streamUsage != nil {
+			dm.PromptTokens = m.streamUsage.PromptTokens
+			dm.CompletionTokens = m.streamUsage.CompletionTokens
+			dm.Cost = m.streamUsage.Cost
+		}
+		m.conversation.Messages = append(m.conversation.Messages, dm)
 	}
 	m.streamBuf.Reset()
+	m.streamUsage = nil
 	m.streaming = false
 	m.streamCh = nil
 	m.cancel = nil
@@ -381,6 +388,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if msg.ev.Usage != nil {
+			m.streamUsage = msg.ev.Usage
+		}
 		if msg.ev.Delta != "" {
 			m.streamBuf.WriteString(msg.ev.Delta)
 			m.refreshViewport()
@@ -405,6 +415,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.costActive {
+			var cmd tea.Cmd
+			m.cost, cmd = m.cost.Update(msg)
+			if m.cost.done {
+				m.costActive = false
+			}
+			return m, cmd
+		}
 		if m.pickerActive {
 			var cmd tea.Cmd
 			m.picker, cmd = m.picker.Update(msg)
@@ -442,6 +460,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch cmd.Name {
 				case "model":
 					return m, m.openPicker()
+				case "cost":
+					m.cost = newCostPanel(m.width, m.height, m.conversation)
+					m.costActive = true
 				default:
 					m.addError("unknown command: /" + cmd.Name)
 				}
@@ -505,6 +526,11 @@ func (m Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 
 	if m.width == 0 {
+		return v
+	}
+
+	if m.costActive {
+		v.SetContent(m.cost.View())
 		return v
 	}
 

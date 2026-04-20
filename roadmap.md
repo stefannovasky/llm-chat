@@ -123,7 +123,8 @@ llm-chat/
 
 - [x] 6.1 Slash command parser: input starting with `/` is interpreted as a command
 - [x] 6.2 `/model` — switch active model
-- [ ] 6.3 `/cost` — display accumulated session cost (uses captured usage data)
+- [x] 6.3 `/cost` — display accumulated session cost (uses captured usage data)
+  - Store on `domain.Message` (assistant-only, populated at end of stream): `Model string`, `PromptTokens int`, `CompletionTokens int`, `Cost float64`. `/cost` groups by `Model` and shows a breakdown + total. No separate session accumulator. Phase 7 `/resume` rehydrates everything for free — do NOT introduce a parallel counter.
 - [ ] 6.4 `/compact` — manually compact conversation history
 - [ ] 6.5 `/help` — list all available commands with a short description of each
 - [x] 6.6 Invalid command errors displayed inline
@@ -134,7 +135,7 @@ llm-chat/
 ### Phase 7 — Conversation persistence + resume
 
 - [ ] 7.1 Save conversations to disk (format TBD)
-- [ ] 7.2 `/resume` — list and re-enter previous conversations
+- [ ] 7.2 `/resume` — list and re-enter previous conversations (cost is rehydrated from `Message.Cost` set in 6.3; no refetch via `/api/v1/generation`)
 
 ---
 
@@ -143,6 +144,7 @@ llm-chat/
 - [ ] 8.1 Token count display for current conversation
 - [ ] 8.2 Fetch model context window limits from OpenRouter API
 - [ ] 8.3 Autocompact — automatically compact history when approaching token limit
+- [ ] 8.4 Reconcile cost for cancelled streams via `/api/v1/generation?id=<gen-id>` — capture `id` from first SSE chunk, on Ctrl+C fetch actual cost async and update the partial `Message` retroactively (closes the undercount left by 6.3)
 
 ---
 

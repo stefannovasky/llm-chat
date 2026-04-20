@@ -41,10 +41,15 @@ type chatRequest struct {
 	Messages      []chatMessage `json:"messages"`
 	Stream        bool          `json:"stream"`
 	StreamOptions streamOptions `json:"stream_options"`
+	Usage         usageOptions  `json:"usage"`
 }
 
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
+}
+
+type usageOptions struct {
+	Include bool `json:"include"`
 }
 
 type chatMessage struct {
@@ -59,8 +64,9 @@ type streamChunk struct {
 		} `json:"delta"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
+		PromptTokens     int     `json:"prompt_tokens"`
+		CompletionTokens int     `json:"completion_tokens"`
+		Cost             float64 `json:"cost"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -87,6 +93,7 @@ func (c *Client) Stream(ctx context.Context, model string, conv domain.Conversat
 		Messages:      msgs,
 		Stream:        true,
 		StreamOptions: streamOptions{IncludeUsage: true},
+		Usage:         usageOptions{Include: true},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: marshal request: %w", err)
@@ -160,6 +167,7 @@ func parseStream(ctx context.Context, body io.ReadCloser, ch chan<- domain.Strea
 			ch <- domain.StreamEvent{Usage: &domain.Usage{
 				PromptTokens:     chunk.Usage.PromptTokens,
 				CompletionTokens: chunk.Usage.CompletionTokens,
+				Cost:             chunk.Usage.Cost,
 			}}
 		}
 	}

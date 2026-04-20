@@ -11,8 +11,12 @@ const (
 const DefaultSystemPrompt = "You are a helpful assistant."
 
 type Message struct {
-	Role    Role
-	Content string
+	Role             Role
+	Content          string
+	Model            string
+	PromptTokens     int
+	CompletionTokens int
+	Cost             float64
 }
 
 type Conversation struct {
@@ -22,6 +26,7 @@ type Conversation struct {
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
+	Cost             float64
 }
 
 type StreamEvent struct {
