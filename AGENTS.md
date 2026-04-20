@@ -14,15 +14,13 @@ Config lives at `~/.config/llm-chat/config.toml` (respects `$XDG_CONFIG_HOME`). 
 
 ## Project structure
 
-Code is organized under `internal/` with four packages: `config` (TOML parsing and validation), `domain` (Message, Conversation types), `llm` (OpenRouter HTTP client and SSE streaming), and `ui` (Bubble Tea model, view, update). The entrypoint is `cmd/llm-chat/main.go`. These layers must stay decoupled — `llm` and `ui` never import each other, they communicate through `domain` types.
+Code is organized under `internal/` with five packages: `config` (TOML parsing and validation), `llm` (OpenRouter HTTP client and SSE streaming), `sessions` (Message and Conversation types, session persistence logic), `storage` (XDG path helpers and atomic JSON writes), and `ui` (Bubble Tea model, view, update, slash commands). The entrypoint is `cmd/llm-chat/main.go`.
+
+Follow package-oriented design: each package owns a clear responsibility and exposes a minimal API. Don't create utility/helper grab-bag packages.
 
 ## Stack
 
-Go 1.25.0, Bubble Tea v2.0.5, Bubbles v2.1.0, Lip Gloss v2.0.3. Do not use different versions. Glamour and TOML library versions are TBD.
-
-## Roadmap
-
-Development is tracked in `roadmap.md`. The MVP spans phases 1 through 5 (setup, TUI layout, OpenRouter integration, streaming, Markdown rendering). Post-MVP phases 6 through 10 cover slash commands, conversation persistence, token management, advanced config, and UX polish. Mark tasks with `[x]` as they are completed.
+Go 1.25, Bubble Tea v2.0.5, Bubbles v2.1.0, Lip Gloss v2.0.3, Glamour v2.0.0, BurntSushi/toml v1.6.0. Do not use different versions.
 
 ## Commits
 
@@ -30,4 +28,4 @@ Follow conventional commits. Examples: `feat: add config loading`, `fix: handle 
 
 ## Key constraints
 
-All terminal output goes through Bubble Tea. No `fmt.Println` or direct prints. No UI updates outside the update loop. No business logic in the view layer. Use existing Bubbles components instead of reimplementing them. The OpenRouter client uses native `net/http` with no third-party HTTP or OpenAI client libraries.
+All terminal output goes through Bubble Tea — no `fmt.Println` or direct prints. The OpenRouter client uses native `net/http` with no third-party HTTP or OpenAI client libraries.
