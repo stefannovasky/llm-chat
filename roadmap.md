@@ -122,11 +122,11 @@ llm-chat/
 ### Phase 6 — Slash commands
 
 - [x] 6.1 Slash command parser: input starting with `/` is interpreted as a command
-- [ ] 6.2 `/model` — switch active model
+- [x] 6.2 `/model` — switch active model
 - [ ] 6.3 `/cost` — display accumulated session cost (uses captured usage data)
 - [ ] 6.4 `/compact` — manually compact conversation history
 - [ ] 6.5 `/help` — list all available commands with a short description of each
-- [ ] 6.6 Invalid command errors displayed inline
+- [x] 6.6 Invalid command errors displayed inline
 - [ ] 6.7 Command output displayed as a system message with distinct color
 
 ---
