@@ -35,7 +35,7 @@ func buildCostContent(conv domain.Conversation) string {
 	order := make([]string, 0, 4)
 
 	for _, m := range conv.Messages {
-		if m.Role != domain.RoleAssistant || m.Model == "" {
+		if m.Model == "" {
 			continue
 		}
 		if _, ok := stats[m.Model]; !ok {
