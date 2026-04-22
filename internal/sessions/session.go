@@ -90,6 +90,55 @@ func DeriveTitle(msgs []Message) string {
 	return ""
 }
 
+// ContextUsed estimates the tokens currently in the active context window.
+func ContextUsed(c Conversation) int {
+	lastAsstIdx := -1
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		m := c.Messages[i]
+		if m.CompactedAt != nil || m.Role == RoleSystem {
+			continue
+		}
+		if m.Role == RoleAssistant {
+			lastAsstIdx = i
+			break
+		}
+	}
+	if lastAsstIdx < 0 {
+		return 0
+	}
+
+	last := c.Messages[lastAsstIdx]
+
+	// Default to CompletionTokens (fresh compact summary: PromptTokens is
+	// inflated). Upgrade to Prompt+Completion if a real user turn precedes it.
+	used := last.CompletionTokens
+	for i := lastAsstIdx - 1; i >= 0; i-- {
+		m := c.Messages[i]
+		if m.CompactedAt != nil || m.Role == RoleSystem {
+			continue
+		}
+		if m.Role == RoleUser {
+			used = last.PromptTokens + last.CompletionTokens
+			break
+		}
+	}
+
+	if used > 0 {
+		return used
+	}
+
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		m := c.Messages[i]
+		if m.CompactedAt != nil || m.Role != RoleAssistant {
+			continue
+		}
+		if v := m.PromptTokens + m.CompletionTokens; v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
 func filePath(id string) (string, error) {
 	d := Dir()
 	if d == "" {
