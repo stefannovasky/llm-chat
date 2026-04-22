@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -43,6 +44,7 @@ var (
 	userDotStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 	assistDotStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	warnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 )
 
 type role int
@@ -172,7 +174,98 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state Stat
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.initCmd
+	return tea.Batch(m.initCmd, fetchModelsCmd())
+}
+
+func formatTokensCompact(n int) string {
+	if n >= 1_000_000 {
+		v := float64(n) / 1_000_000
+		if v == float64(int(v)) {
+			return fmt.Sprintf("%dM", int(v))
+		}
+		return fmt.Sprintf("%.1fM", v)
+	}
+	if n >= 1_000 {
+		v := float64(n) / 1_000
+		if v == float64(int(v)) {
+			return fmt.Sprintf("%dk", int(v))
+		}
+		return fmt.Sprintf("%.1fk", v)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func counterStyle(used, limit int) lipgloss.Style {
+	if limit == 0 {
+		return dimStyle
+	}
+	r := float64(used) / float64(limit)
+	switch {
+	case r >= 0.95:
+		return errorStyle
+	case r >= 0.80:
+		return warnStyle
+	default:
+		return dimStyle
+	}
+}
+
+func (m *Model) renderHeader() string {
+	const brand = "llm-chat"
+	brandRendered := dimStyle.Render(brand)
+	brandWidth := lipgloss.Width(brandRendered)
+
+	used := sessions.ContextUsed(m.conversation)
+
+	var limit int
+	for _, info := range m.modelsCache {
+		if info.ID == m.currentModel {
+			limit = info.ContextLength
+			break
+		}
+	}
+
+	var counter string
+	if used > 0 || limit > 0 {
+		usedStr := formatTokensCompact(used)
+		if limit > 0 {
+			counter = counterStyle(used, limit).Render(usedStr + " / " + formatTokensCompact(limit) + " tokens")
+		} else {
+			counter = dimStyle.Render(usedStr + " tokens")
+		}
+	}
+
+	modelRendered := dimStyle.Render(m.currentModel)
+	var rightContent string
+	if counter != "" {
+		rightContent = modelRendered + dimStyle.Render(" · ") + counter
+	} else {
+		rightContent = modelRendered
+	}
+
+	rightWidth := m.width - brandWidth
+	if rightWidth < 1 {
+		return brandRendered
+	}
+
+	const ellipsis = "…"
+	if lipgloss.Width(rightContent) > rightWidth {
+		rightContent = modelRendered
+	}
+	if lipgloss.Width(rightContent) > rightWidth {
+		available := rightWidth - lipgloss.Width(ellipsis)
+		runes := []rune(m.currentModel)
+		if available > 0 && available < len(runes) {
+			runes = runes[:available]
+		}
+		rightContent = dimStyle.Render(string(runes) + ellipsis)
+	}
+	if lipgloss.Width(rightContent) > rightWidth {
+		return brandRendered
+	}
+
+	right := lipgloss.NewStyle().Width(rightWidth).Align(lipgloss.Right).Render(rightContent)
+	return brandRendered + right
 }
 
 func (m *Model) recalcLayout() {
@@ -183,18 +276,12 @@ func (m *Model) recalcLayout() {
 	m.textarea.SetWidth(m.width - 2) // "- 2" for "> " prefix
 	inputLines := m.textarea.Height()
 
-	vpHeight := m.height - 3 - inputLines // 3 = header + 2 separators
-	if vpHeight < 0 {
-		vpHeight = 0
-	}
+	vpHeight := max(m.height-3-inputLines, 0) // 3 = header + 2 separators
 
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(vpHeight)
 
-	contentWidth := m.width - 2 // "- 2" for "● " prefix
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	contentWidth := max(m.width-2, 1) // "- 2" for "● " prefix
 	if m.mdRenderer == nil || m.mdRendererWidth != contentWidth {
 		style := glamourstyles.DarkStyleConfig
 		zero := uint(0)
@@ -211,10 +298,7 @@ func (m *Model) recalcLayout() {
 }
 
 func (m *Model) refreshViewport() {
-	contentWidth := m.viewport.Width() - 2 // "- 2" for "● " prefix
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	contentWidth := max(m.viewport.Width()-2, 1) // "- 2" for "● " prefix
 
 	var sb strings.Builder
 	for i, msg := range m.messages {
@@ -222,25 +306,23 @@ func (m *Model) refreshViewport() {
 			sb.WriteString("\n\n")
 		}
 
-		var prefix string
-		if msg.role == roleError {
-			prefix = errorStyle.Render(errorMark) + " "
+		switch msg.role {
+		case roleError:
+			prefix := errorStyle.Render(errorMark) + " "
 			wrapped := errorStyle.Render(lipgloss.Wrap(msg.content, contentWidth, " "))
 			sb.WriteString(prefixLines(wrapped, prefix, "  "))
-		} else if msg.role == roleInfo {
-			prefix = dimStyle.Render(dot) + " "
+		case roleInfo:
+			prefix := dimStyle.Render(dot) + " "
 			wrapped := dimStyle.Render(lipgloss.Wrap(msg.content, contentWidth, " "))
 			sb.WriteString(prefixLines(wrapped, prefix, "  "))
-		} else {
-			if msg.role == roleUser {
-				prefix = userDotStyle.Render(dot) + " "
-				wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
-				sb.WriteString(prefixLines(wrapped, prefix, "  "))
-			} else {
-				prefix = assistDotStyle.Render(dot) + " "
-				rendered := m.renderMarkdown(msg.content, contentWidth)
-				sb.WriteString(prefixLines(rendered, prefix, "  "))
-			}
+		case roleUser:
+			prefix := userDotStyle.Render(dot) + " "
+			wrapped := lipgloss.Wrap(msg.content, contentWidth, " ")
+			sb.WriteString(prefixLines(wrapped, prefix, "  "))
+		default:
+			prefix := assistDotStyle.Render(dot) + " "
+			rendered := m.renderMarkdown(msg.content, contentWidth)
+			sb.WriteString(prefixLines(rendered, prefix, "  "))
 		}
 	}
 
@@ -776,7 +858,7 @@ func (m Model) View() tea.View {
 		return v
 	}
 
-	header := dimStyle.Render("llm-chat")
+	header := m.renderHeader()
 	input := prefixLines(m.textarea.View(), dimStyle.Render(">")+" ", "  ")
 
 	v.SetContent(strings.Join([]string{
