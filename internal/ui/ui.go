@@ -745,7 +745,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addError("failed to load session: " + err.Error())
 					} else {
 						m.applySession(s)
-						sessions.Touch(id)
+						sessions.Touch(s)
 					}
 				}
 				return m, nil

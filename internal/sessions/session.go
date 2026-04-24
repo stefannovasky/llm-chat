@@ -179,15 +179,15 @@ func Load(id string) (*Session, error) {
 	return &s, nil
 }
 
-// Touch updates LastAccessedAt for the given session and persists it.
+// Touch stamps LastAccessedAt on s and persists it without modifying UpdatedAt.
 // Errors are silently ignored — this is metadata only.
-func Touch(id string) {
-	s, err := Load(id)
+func Touch(s *Session) {
+	s.LastAccessedAt = time.Now().UTC()
+	path, err := filePath(s.ID)
 	if err != nil {
 		return
 	}
-	s.LastAccessedAt = time.Now().UTC()
-	_ = Save(s)
+	_ = storage.WriteJSONAtomic(path, s, true)
 }
 
 // List returns session summaries sorted by LastAccessedAt descending, falling
