@@ -445,6 +445,22 @@ func (m *Model) applySession(s *sessions.Session) {
 	m.viewport.GotoBottom()
 }
 
+func (m *Model) resetSession() {
+	if len(m.conversation.Messages) > 1 {
+		m.autosave()
+	}
+	m.messages = m.messages[:0]
+	m.conversation = sessions.Conversation{
+		Messages: []sessions.Message{
+			{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
+		},
+	}
+	m.sessionID = ""
+	m.sessionCreatedAt = time.Time{}
+	m.refreshViewport()
+	m.viewport.GotoTop()
+}
+
 func (m *Model) selectModel(id string) {
 	m.currentModel = id
 	m.state.touch(id)
@@ -767,6 +783,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.costActive = true
 				case "compact":
 					return m, m.startCompact()
+				case "new":
+					if m.streaming || m.compacting {
+						return m, nil
+					}
+					m.resetSession()
 				case "resume":
 					if m.streaming || m.compacting {
 						return m, nil

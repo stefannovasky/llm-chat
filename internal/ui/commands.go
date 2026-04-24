@@ -12,11 +12,12 @@ type commandInfo struct {
 }
 
 var allCommands = []commandInfo{
+	{"help", "list available commands"},
+	{"new", "start a fresh conversation"},
 	{"model", "switch active model"},
 	{"cost", "show session cost and token usage"},
 	{"compact", "compact conversation history"},
 	{"resume", "list and reopen a previous conversation"},
-	{"help", "list available commands"},
 }
 
 func parseCommand(input string) (command, bool) {
