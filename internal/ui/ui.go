@@ -460,9 +460,11 @@ func (m *Model) applySession(s *sessions.Session) {
 }
 
 func (m *Model) resetSession() {
-	if len(m.conversation.Messages) > 1 {
-		m.autosave()
-	}
+	// The stream-start and stream-event error paths now autosave
+	// directly, so the defensive autosave that used to live here
+	// (PR #10) is no longer needed — the "if it's in
+	// m.conversation.Messages, it's on disk" invariant holds before
+	// we get here.
 	m.messages = m.messages[:0]
 	m.conversation = newConversation(m.cfg.SystemPrompt)
 	m.currentSession = nil
@@ -615,6 +617,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.op.cancel()
 			}
 			m.resetOp()
+			// The user message was appended to m.conversation.Messages
+			// before the stream started. If the stream then fails to
+			// start, no autosave path fires — leaving the user message
+			// in memory only. Persist it now so it survives /new or a
+			// process exit (issue #11).
+			if len(m.conversation.Messages) > 1 {
+				m.autosave()
+			}
 			if cancelled {
 				m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
 				m.refreshViewport()
@@ -655,6 +665,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resetOp()
 			} else {
 				m.finalizeStream()
+			}
+			// finalizeStream only autosaves when streamBuf is non-empty,
+			// so an error before any token arrived leaves the pending
+			// user message in memory only. Persist it now so /new or a
+			// crash doesn't drop it (issue #11).
+			if m.op.kind != opCompact && len(m.conversation.Messages) > 1 {
+				m.autosave()
 			}
 			if cancelled {
 				m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
