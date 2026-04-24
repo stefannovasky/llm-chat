@@ -72,37 +72,37 @@ type streamEventMsg struct {
 }
 
 type Model struct {
-	cfg              *config.Config
-	client           *llm.Client
-	currentModel     string
-	state            State
-	modelsCache      []llmInfo
-	picker           pickerModel
-	pickerActive     bool
-	sessionsPicker   sessionsPickerModel
-	sessionsActive   bool
-	cost             costPanel
-	costActive       bool
-	width            int
-	height           int
-	separator        string
-	viewport         viewport.Model
-	textarea         textarea.Model
-	spinner          spinner.Model
-	messages         []message
-	conversation     sessions.Conversation
-	streaming        bool
-	streamBuf        *strings.Builder
-	streamCh         <-chan llm.StreamEvent
-	streamUsage      *llm.Usage
-	cancel           context.CancelFunc
-	compacting       bool
-	compactBuf       *strings.Builder
-	compactUsage     *llm.Usage
-	compactCancelled bool
-	initCmd          tea.Cmd
-	mdRenderer       *glamour.TermRenderer
-	mdRendererWidth  int
+	cfg                   *config.Config
+	client                *llm.Client
+	currentModel          string
+	state                 State
+	modelsCache           []llmInfo
+	picker                pickerModel
+	pickerActive          bool
+	sessionsPicker        sessionsPickerModel
+	sessionsActive        bool
+	cost                  costPanel
+	costActive            bool
+	width                 int
+	height                int
+	separator             string
+	viewport              viewport.Model
+	textarea              textarea.Model
+	spinner               spinner.Model
+	messages              []message
+	conversation          sessions.Conversation
+	streaming             bool
+	streamBuf             *strings.Builder
+	streamCh              <-chan llm.StreamEvent
+	streamUsage           *llm.Usage
+	cancel                context.CancelFunc
+	compacting            bool
+	compactBuf            *strings.Builder
+	compactUsage          *llm.Usage
+	compactCancelled      bool
+	initCmd               tea.Cmd
+	mdRenderer            *glamour.TermRenderer
+	mdRendererWidth       int
 	sessionID             string
 	sessionCreatedAt      time.Time
 	sessionLastAccessedAt time.Time
