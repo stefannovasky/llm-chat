@@ -165,10 +165,14 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state Stat
 		initCmd:      focusCmd,
 		streamBuf:    &strings.Builder{},
 		compactBuf:   &strings.Builder{},
-		conversation: sessions.Conversation{
-			Messages: []sessions.Message{
-				{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
-			},
+		conversation: newConversation(),
+	}
+}
+
+func newConversation() sessions.Conversation {
+	return sessions.Conversation{
+		Messages: []sessions.Message{
+			{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
 		},
 	}
 }
@@ -443,6 +447,18 @@ func (m *Model) applySession(s *sessions.Session) {
 
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+}
+
+func (m *Model) resetSession() {
+	if len(m.conversation.Messages) > 1 {
+		m.autosave()
+	}
+	m.messages = m.messages[:0]
+	m.conversation = newConversation()
+	m.sessionID = ""
+	m.sessionCreatedAt = time.Time{}
+	m.refreshViewport()
+	m.viewport.GotoTop()
 }
 
 func (m *Model) selectModel(id string) {
@@ -767,10 +783,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.costActive = true
 				case "compact":
 					return m, m.startCompact()
+				case "new":
+					m.resetSession()
 				case "resume":
-					if m.streaming || m.compacting {
-						return m, nil
-					}
 					m.openSessionsPicker()
 					return m, nil
 				case "help":
