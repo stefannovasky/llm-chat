@@ -165,10 +165,14 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state Stat
 		initCmd:      focusCmd,
 		streamBuf:    &strings.Builder{},
 		compactBuf:   &strings.Builder{},
-		conversation: sessions.Conversation{
-			Messages: []sessions.Message{
-				{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
-			},
+		conversation: newConversation(),
+	}
+}
+
+func newConversation() sessions.Conversation {
+	return sessions.Conversation{
+		Messages: []sessions.Message{
+			{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
 		},
 	}
 }
@@ -450,11 +454,7 @@ func (m *Model) resetSession() {
 		m.autosave()
 	}
 	m.messages = m.messages[:0]
-	m.conversation = sessions.Conversation{
-		Messages: []sessions.Message{
-			{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
-		},
-	}
+	m.conversation = newConversation()
 	m.sessionID = ""
 	m.sessionCreatedAt = time.Time{}
 	m.refreshViewport()
@@ -784,9 +784,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "compact":
 					return m, m.startCompact()
 				case "new":
-					if m.streaming || m.compacting {
-						return m, nil
-					}
 					m.resetSession()
 				case "resume":
 					if m.streaming || m.compacting {
