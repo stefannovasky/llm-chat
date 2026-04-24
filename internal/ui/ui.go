@@ -103,20 +103,24 @@ type Model struct {
 	initCmd          tea.Cmd
 	mdRenderer       *glamour.TermRenderer
 	mdRendererWidth  int
-	sessionID        string
-	sessionCreatedAt time.Time
+	sessionID             string
+	sessionCreatedAt      time.Time
+	sessionLastAccessedAt time.Time
 }
 
 func (m *Model) autosave() {
 	if m.sessionID == "" {
 		m.sessionID = sessions.NewID()
-		m.sessionCreatedAt = time.Now().UTC()
+		now := time.Now().UTC()
+		m.sessionCreatedAt = now
+		m.sessionLastAccessedAt = now
 	}
 	s := &sessions.Session{
-		ID:        m.sessionID,
-		Title:     sessions.DeriveTitle(m.conversation.Messages),
-		CreatedAt: m.sessionCreatedAt,
-		Messages:  m.conversation.Messages,
+		ID:             m.sessionID,
+		Title:          sessions.DeriveTitle(m.conversation.Messages),
+		CreatedAt:      m.sessionCreatedAt,
+		LastAccessedAt: m.sessionLastAccessedAt,
+		Messages:       m.conversation.Messages,
 	}
 	_ = sessions.Save(s)
 }
@@ -426,6 +430,7 @@ func (m *Model) applySession(s *sessions.Session) {
 	}
 	m.sessionID = s.ID
 	m.sessionCreatedAt = s.CreatedAt
+	m.sessionLastAccessedAt = time.Now().UTC()
 	m.conversation.Messages = append([]sessions.Message(nil), s.Messages...)
 
 	m.messages = m.messages[:0]
@@ -740,6 +745,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addError("failed to load session: " + err.Error())
 					} else {
 						m.applySession(s)
+						sessions.Touch(id)
 					}
 				}
 				return m, nil
