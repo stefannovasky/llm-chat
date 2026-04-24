@@ -786,9 +786,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "new":
 					m.resetSession()
 				case "resume":
-					if m.streaming || m.compacting {
-						return m, nil
-					}
 					m.openSessionsPicker()
 					return m, nil
 				case "help":
