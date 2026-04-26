@@ -12,12 +12,15 @@ import (
 
 const HardcodedDefaultModel = "openai/gpt-4o-mini"
 
+const DefaultSystemPrompt = "You are a helpful assistant."
+
 // ErrFirstRun is returned when no config file exists and a template was created.
 var ErrFirstRun = errors.New("first run")
 
 type Config struct {
 	APIKey       string `toml:"api_key"`
 	DefaultModel string `toml:"default_model"`
+	SystemPrompt string `toml:"system_prompt"`
 }
 
 func ConfigPath() string {
@@ -30,6 +33,12 @@ api_key = ""
 
 # Model to use (optional, defaults to openai/gpt-4o-mini)
 # default_model = "openai/gpt-4o-mini"
+
+# System prompt (optional)
+# system_prompt = """
+# Line one of the prompt.
+# Line two of the prompt.
+# """
 `
 
 func Load() (*Config, error) {
@@ -63,5 +72,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("api_key is required. Set it in %s", path)
 	}
 	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
+	cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt)
+	if cfg.SystemPrompt == "" {
+		cfg.SystemPrompt = DefaultSystemPrompt
+	}
 	return &cfg, nil
 }
