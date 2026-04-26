@@ -47,6 +47,7 @@ Launch with `llm-chat`. Type a message and press Enter to send. Alt+Enter insert
 Slash commands:
 
 ```
+/new       start a fresh conversation
 /model     switch the active model
 /cost      show session cost and token usage
 /compact   compact conversation history
