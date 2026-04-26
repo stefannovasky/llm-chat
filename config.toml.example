@@ -3,3 +3,9 @@ api_key = ""
 
 # Model to use (optional, defaults to openai/gpt-4o-mini)
 # default_model = "openai/gpt-4o-mini"
+
+# System prompt (optional)
+# system_prompt = """
+# Line one of the prompt.
+# Line two of the prompt.
+# """

@@ -21,8 +21,7 @@ import (
 )
 
 const (
-	defaultSystemPrompt = "You are a helpful assistant."
-	compactPrompt       = "You are summarizing this conversation so it can be continued with less context. " +
+	compactPrompt = "You are summarizing this conversation so it can be continued with less context. " +
 		"Preserve: the user's underlying goal, key facts and decisions, any code or concrete details referenced, " +
 		"and any open questions or pending actions. Drop: pleasantries, tangents, and verbose explanations that " +
 		"have already been acknowledged. Respond with the summary only — no preamble, no meta-commentary."
@@ -169,14 +168,14 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state Stat
 		initCmd:      focusCmd,
 		streamBuf:    &strings.Builder{},
 		compactBuf:   &strings.Builder{},
-		conversation: newConversation(),
+		conversation: newConversation(cfg.SystemPrompt),
 	}
 }
 
-func newConversation() sessions.Conversation {
+func newConversation(systemPrompt string) sessions.Conversation {
 	return sessions.Conversation{
 		Messages: []sessions.Message{
-			{Role: sessions.RoleSystem, Content: defaultSystemPrompt},
+			{Role: sessions.RoleSystem, Content: systemPrompt},
 		},
 	}
 }
@@ -432,6 +431,7 @@ func (m *Model) applySession(s *sessions.Session) {
 	m.sessionCreatedAt = s.CreatedAt
 	m.sessionLastAccessedAt = time.Now().UTC()
 	m.conversation.Messages = append([]sessions.Message(nil), s.Messages...)
+	m.conversation.Messages[0].Content = m.cfg.SystemPrompt
 
 	m.messages = m.messages[:0]
 	for _, dm := range s.Messages {
@@ -459,7 +459,7 @@ func (m *Model) resetSession() {
 		m.autosave()
 	}
 	m.messages = m.messages[:0]
-	m.conversation = newConversation()
+	m.conversation = newConversation(m.cfg.SystemPrompt)
 	m.sessionID = ""
 	m.sessionCreatedAt = time.Time{}
 	m.refreshViewport()
