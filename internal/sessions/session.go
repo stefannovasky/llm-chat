@@ -42,20 +42,22 @@ type Conversation struct {
 }
 
 type Session struct {
-	Version   int       `json:"version"`
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Messages  []Message `json:"messages"`
+	Version        int       `json:"version"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"`
+	Messages       []Message `json:"messages"`
 }
 
 type Summary struct {
-	ID        string
-	Title     string
-	UpdatedAt time.Time
-	Cost      float64
-	Messages  int
+	ID             string
+	Title          string
+	UpdatedAt      time.Time
+	LastAccessedAt time.Time
+	Cost           float64
+	Messages       int
 }
 
 func Dir() string {
@@ -177,7 +179,19 @@ func Load(id string) (*Session, error) {
 	return &s, nil
 }
 
-// List returns session summaries sorted by UpdatedAt descending. Unreadable or
+// Touch stamps LastAccessedAt on s and persists it without modifying UpdatedAt.
+// Errors are silently ignored — this is metadata only.
+func Touch(s *Session) {
+	s.LastAccessedAt = time.Now().UTC()
+	path, err := filePath(s.ID)
+	if err != nil {
+		return
+	}
+	_ = storage.WriteJSONAtomic(path, s, true)
+}
+
+// List returns session summaries sorted by LastAccessedAt descending, falling
+// back to UpdatedAt for sessions that pre-date the field. Unreadable or
 // corrupted files are silently skipped — persistence is best-effort.
 func List() ([]Summary, error) {
 	d := Dir()
@@ -201,11 +215,16 @@ func List() ([]Summary, error) {
 		if err != nil {
 			continue
 		}
+		effectiveTime := s.LastAccessedAt
+		if effectiveTime.IsZero() {
+			effectiveTime = s.UpdatedAt
+		}
 		sum := Summary{
-			ID:        s.ID,
-			Title:     s.Title,
-			UpdatedAt: s.UpdatedAt,
-			Messages:  len(s.Messages),
+			ID:             s.ID,
+			Title:          s.Title,
+			UpdatedAt:      s.UpdatedAt,
+			LastAccessedAt: effectiveTime,
+			Messages:       len(s.Messages),
 		}
 		for _, m := range s.Messages {
 			sum.Cost += m.Cost
@@ -213,7 +232,7 @@ func List() ([]Summary, error) {
 		out = append(out, sum)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		return out[i].LastAccessedAt.After(out[j].LastAccessedAt)
 	})
 	return out, nil
 }

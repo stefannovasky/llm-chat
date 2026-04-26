@@ -26,7 +26,7 @@ func (i sessionItem) Title() string {
 
 func (i sessionItem) Description() string {
 	return fmt.Sprintf("  %s · %d msgs · $%.4f",
-		i.sum.UpdatedAt.Local().Format("2006-01-02 15:04"),
+		i.sum.LastAccessedAt.Local().Format("2006-01-02 15:04"),
 		i.sum.Messages,
 		i.sum.Cost,
 	)
