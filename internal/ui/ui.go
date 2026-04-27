@@ -70,58 +70,65 @@ type streamEventMsg struct {
 	ok bool
 }
 
+type opKind int
+
+const (
+	opNone opKind = iota
+	opStream
+	opCompact
+)
+
+// activeOp holds the state of an in-flight LLM operation. Streaming and
+// compacting are mutually exclusive, so they share buffer, channel, cancel and
+// cancelled flag — kind discriminates which one is active.
+type activeOp struct {
+	kind      opKind
+	buf       *strings.Builder
+	usage     *llm.Usage
+	ch        <-chan llm.StreamEvent
+	cancel    context.CancelFunc
+	cancelled bool
+}
+
 type Model struct {
-	cfg                   *config.Config
-	client                *llm.Client
-	currentModel          string
-	state                 State
-	modelsCache           []llmInfo
-	picker                pickerModel
-	pickerActive          bool
-	sessionsPicker        sessionsPickerModel
-	sessionsActive        bool
-	cost                  costPanel
-	costActive            bool
-	width                 int
-	height                int
-	separator             string
-	viewport              viewport.Model
-	textarea              textarea.Model
-	spinner               spinner.Model
-	messages              []message
-	conversation          sessions.Conversation
-	streaming             bool
-	streamBuf             *strings.Builder
-	streamCh              <-chan llm.StreamEvent
-	streamUsage           *llm.Usage
-	cancel                context.CancelFunc
-	compacting            bool
-	compactBuf            *strings.Builder
-	compactUsage          *llm.Usage
-	compactCancelled      bool
-	initCmd               tea.Cmd
-	mdRenderer            *glamour.TermRenderer
-	mdRendererWidth       int
-	sessionID             string
-	sessionCreatedAt      time.Time
-	sessionLastAccessedAt time.Time
+	cfg             *config.Config
+	client          *llm.Client
+	currentModel    string
+	state           State
+	modelsCache     []llmInfo
+	picker          pickerModel
+	pickerActive    bool
+	sessionsPicker  sessionsPickerModel
+	sessionsActive  bool
+	cost            costPanel
+	costActive      bool
+	width           int
+	height          int
+	separator       string
+	viewport        viewport.Model
+	textarea        textarea.Model
+	spinner         spinner.Model
+	messages        []message
+	conversation    sessions.Conversation
+	op              activeOp
+	initCmd         tea.Cmd
+	mdRenderer      *glamour.TermRenderer
+	mdRendererWidth int
+	currentSession  *sessions.Session
 }
 
 func (m *Model) autosave() {
-	if m.sessionID == "" {
-		m.sessionID = sessions.NewID()
+	if m.currentSession == nil {
 		now := time.Now().UTC()
-		m.sessionCreatedAt = now
-		m.sessionLastAccessedAt = now
+		m.currentSession = &sessions.Session{
+			ID:             sessions.NewID(),
+			CreatedAt:      now,
+			LastAccessedAt: now,
+		}
 	}
-	s := &sessions.Session{
-		ID:             m.sessionID,
-		Title:          sessions.DeriveTitle(m.conversation.Messages),
-		CreatedAt:      m.sessionCreatedAt,
-		LastAccessedAt: m.sessionLastAccessedAt,
-		Messages:       m.conversation.Messages,
-	}
-	_ = sessions.Save(s)
+	m.currentSession.Title = sessions.DeriveTitle(m.conversation.Messages)
+	m.currentSession.Messages = m.conversation.Messages
+	_ = sessions.Save(m.currentSession)
 }
 
 func New(cfg *config.Config, client *llm.Client, currentModel string, state State) Model {
@@ -166,8 +173,6 @@ func New(cfg *config.Config, client *llm.Client, currentModel string, state Stat
 		textarea:     ta,
 		spinner:      s,
 		initCmd:      focusCmd,
-		streamBuf:    &strings.Builder{},
-		compactBuf:   &strings.Builder{},
 		conversation: newConversation(cfg.SystemPrompt),
 	}
 }
@@ -333,21 +338,22 @@ func (m *Model) refreshViewport() {
 		}
 	}
 
-	if m.streaming {
+	switch m.op.kind {
+	case opStream:
 		if len(m.messages) > 0 {
 			sb.WriteString("\n\n")
 		}
 		prefix := assistDotStyle.Render(dot) + " "
-		if m.streamBuf.Len() == 0 {
+		if m.op.buf.Len() == 0 {
 			sb.WriteString(prefix)
 			sb.WriteString(m.spinner.View())
 		} else {
-			wrapped := lipgloss.Wrap(m.streamBuf.String(), contentWidth, " ")
+			wrapped := lipgloss.Wrap(m.op.buf.String(), contentWidth, " ")
 			sb.WriteString(prefixLines(wrapped, prefix, "  "))
 			sb.WriteString(" ")
 			sb.WriteString(m.spinner.View())
 		}
-	} else if m.compacting {
+	case opCompact:
 		if len(m.messages) > 0 {
 			sb.WriteString("\n\n")
 		}
@@ -427,9 +433,8 @@ func (m *Model) applySession(s *sessions.Session) {
 		m.addError("session file is corrupt: missing system prompt")
 		return
 	}
-	m.sessionID = s.ID
-	m.sessionCreatedAt = s.CreatedAt
-	m.sessionLastAccessedAt = time.Now().UTC()
+	m.currentSession = s
+	m.currentSession.LastAccessedAt = time.Now().UTC()
 	m.conversation.Messages = append([]sessions.Message(nil), s.Messages...)
 	m.conversation.Messages[0].Content = m.cfg.SystemPrompt
 
@@ -460,8 +465,7 @@ func (m *Model) resetSession() {
 	}
 	m.messages = m.messages[:0]
 	m.conversation = newConversation(m.cfg.SystemPrompt)
-	m.sessionID = ""
-	m.sessionCreatedAt = time.Time{}
+	m.currentSession = nil
 	m.refreshViewport()
 	m.viewport.GotoTop()
 }
@@ -495,12 +499,8 @@ func (m *Model) startCompact() tea.Cmd {
 		m.addError("nothing new to compact")
 		return nil
 	}
-	m.compacting = true
-	m.compactCancelled = false
-	m.compactBuf.Reset()
-	m.compactUsage = nil
 	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel = cancel
+	m.op = activeOp{kind: opCompact, buf: &strings.Builder{}, cancel: cancel}
 
 	msgs := make([]sessions.Message, 0, len(m.conversation.Messages)+1)
 	msgs = append(msgs, m.conversation.Messages...)
@@ -516,13 +516,8 @@ func (m *Model) startCompact() tea.Cmd {
 	)
 }
 
-func (m *Model) resetCompactState() {
-	m.compactBuf.Reset()
-	m.compactUsage = nil
-	m.compacting = false
-	m.compactCancelled = false
-	m.streamCh = nil
-	m.cancel = nil
+func (m *Model) resetOp() {
+	m.op = activeOp{}
 }
 
 func (m *Model) addError(text string) {
@@ -532,13 +527,13 @@ func (m *Model) addError(text string) {
 }
 
 func (m *Model) finalizeCompact() {
-	defer m.resetCompactState()
+	defer m.resetOp()
 
-	if m.compactCancelled {
+	if m.op.cancelled {
 		m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
 		return
 	}
-	if m.compactBuf.Len() == 0 {
+	if m.op.buf.Len() == 0 {
 		m.messages = append(m.messages, message{role: roleError, content: "compact produced no summary"})
 		return
 	}
@@ -554,14 +549,14 @@ func (m *Model) finalizeCompact() {
 	summary := sessions.Message{
 		Role: sessions.RoleAssistant,
 		Content: "[Conversation summary — condensed history of earlier turns]\n" +
-			m.compactBuf.String() +
+			m.op.buf.String() +
 			"\n[End of summary]",
 		Model: m.currentModel,
 	}
-	if m.compactUsage != nil {
-		summary.PromptTokens = m.compactUsage.PromptTokens
-		summary.CompletionTokens = m.compactUsage.CompletionTokens
-		summary.Cost = m.compactUsage.Cost
+	if m.op.usage != nil {
+		summary.PromptTokens = m.op.usage.PromptTokens
+		summary.CompletionTokens = m.op.usage.CompletionTokens
+		summary.Cost = m.op.usage.Cost
 	}
 	m.conversation.Messages = append(m.conversation.Messages, summary)
 	m.autosave()
@@ -569,23 +564,19 @@ func (m *Model) finalizeCompact() {
 }
 
 func (m *Model) finalizeStream() {
-	if m.streamBuf.Len() > 0 {
-		content := m.streamBuf.String()
+	if m.op.buf.Len() > 0 {
+		content := m.op.buf.String()
 		m.messages = append(m.messages, message{role: roleAssistant, content: content})
 		dm := sessions.Message{Role: sessions.RoleAssistant, Content: content, Model: m.currentModel}
-		if m.streamUsage != nil {
-			dm.PromptTokens = m.streamUsage.PromptTokens
-			dm.CompletionTokens = m.streamUsage.CompletionTokens
-			dm.Cost = m.streamUsage.Cost
+		if m.op.usage != nil {
+			dm.PromptTokens = m.op.usage.PromptTokens
+			dm.CompletionTokens = m.op.usage.CompletionTokens
+			dm.Cost = m.op.usage.Cost
 		}
 		m.conversation.Messages = append(m.conversation.Messages, dm)
 		m.autosave()
 	}
-	m.streamBuf.Reset()
-	m.streamUsage = nil
-	m.streaming = false
-	m.streamCh = nil
-	m.cancel = nil
+	m.resetOp()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -619,12 +610,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamStartMsg:
 		if msg.err != nil {
-			cancelled := m.compacting && m.compactCancelled
-			m.streaming = false
-			if m.cancel != nil {
-				m.cancel()
+			cancelled := m.op.kind == opCompact && m.op.cancelled
+			if m.op.cancel != nil {
+				m.op.cancel()
 			}
-			m.resetCompactState()
+			m.resetOp()
 			if cancelled {
 				m.messages = append(m.messages, message{role: roleInfo, content: "Compact cancelled."})
 				m.refreshViewport()
@@ -634,17 +624,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.streamCh = msg.ch
+		m.op.ch = msg.ch
 		return m, waitForEvent(msg.ch)
 
 	case streamEventMsg:
 		wasAtBottom := m.viewport.AtBottom()
 
 		if !msg.ok {
-			if m.cancel != nil {
-				m.cancel()
+			if m.op.cancel != nil {
+				m.op.cancel()
 			}
-			if m.compacting {
+			if m.op.kind == opCompact {
 				m.finalizeCompact()
 			} else {
 				m.finalizeStream()
@@ -657,12 +647,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.ev.Err != nil {
-			if m.cancel != nil {
-				m.cancel()
+			if m.op.cancel != nil {
+				m.op.cancel()
 			}
-			cancelled := m.compacting && m.compactCancelled
-			if m.compacting {
-				m.resetCompactState()
+			cancelled := m.op.kind == opCompact && m.op.cancelled
+			if m.op.kind == opCompact {
+				m.resetOp()
 			} else {
 				m.finalizeStream()
 			}
@@ -678,27 +668,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.compacting {
+		if m.op.kind == opCompact {
 			if msg.ev.Usage != nil {
-				m.compactUsage = msg.ev.Usage
+				m.op.usage = msg.ev.Usage
 			}
 			if msg.ev.Delta != "" {
-				m.compactBuf.WriteString(msg.ev.Delta)
+				m.op.buf.WriteString(msg.ev.Delta)
 			}
-			return m, waitForEvent(m.streamCh)
+			return m, waitForEvent(m.op.ch)
 		}
 
 		if msg.ev.Usage != nil {
-			m.streamUsage = msg.ev.Usage
+			m.op.usage = msg.ev.Usage
 		}
 		if msg.ev.Delta != "" {
-			m.streamBuf.WriteString(msg.ev.Delta)
+			m.op.buf.WriteString(msg.ev.Delta)
 			m.refreshViewport()
 			if wasAtBottom {
 				m.viewport.GotoBottom()
 			}
 		}
-		return m, waitForEvent(m.streamCh)
+		return m, waitForEvent(m.op.ch)
 
 	case spinner.TickMsg:
 		if m.pickerActive && m.picker.loading {
@@ -706,7 +696,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.picker, cmd = m.picker.Update(msg)
 			return m, cmd
 		}
-		if m.streaming || m.compacting {
+		if m.op.kind != opNone {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			m.refreshViewport()
@@ -754,25 +744,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "ctrl+c":
-			if m.streaming {
-				if m.cancel != nil {
-					m.cancel()
+			switch m.op.kind {
+			case opStream:
+				if m.op.cancel != nil {
+					m.op.cancel()
 				}
 				// Do not finalize here; wait for channel close so any pending
 				// events are drained through the normal path.
 				return m, nil
-			}
-			if m.compacting {
-				m.compactCancelled = true
-				if m.cancel != nil {
-					m.cancel()
+			case opCompact:
+				m.op.cancelled = true
+				if m.op.cancel != nil {
+					m.op.cancel()
 				}
 				return m, nil
 			}
 			return m, tea.Quit
 
 		case "enter":
-			if m.streaming || m.compacting {
+			if m.op.kind != opNone {
 				return m, nil
 			}
 			content := strings.TrimSpace(m.textarea.Value())
@@ -809,10 +799,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: content,
 			})
 			m.textarea.Reset()
-			m.streaming = true
-			m.streamBuf.Reset()
 			ctx, cancel := context.WithCancel(context.Background())
-			m.cancel = cancel
+			m.op = activeOp{kind: opStream, buf: &strings.Builder{}, cancel: cancel}
 			m.recalcLayout()
 			m.refreshViewport()
 			m.viewport.GotoBottom()
